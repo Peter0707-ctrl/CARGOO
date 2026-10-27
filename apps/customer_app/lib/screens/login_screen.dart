@@ -62,7 +62,6 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(
           builder: (context) => OtpScreen(
             phoneNumber: fullPhone,
-            debugOtp: result['data']?['debug_otp'] ?? '123456',
           ),
         ),
       );

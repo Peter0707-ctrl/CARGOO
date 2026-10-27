@@ -193,12 +193,19 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
         ? _emailController.text.trim()
         : _phoneController.text.trim();
 
+    // Dispatch real OTP before opening confirmation modal
+    await ApiService.requestOtp(_phoneController.text.trim());
+    if (!mounted) return;
+
     // Launch V15 Animated OTP Verification Card for Profile Update
     final verified = await showAnimatedOtpVerificationModal(
       context: context,
       destination: destination,
       verifiedSubtitle: 'Your profile update has been verified.',
-      initialOtp: '1234',
+      customValidator: (code) async {
+        final res = await ApiService.verifyOtp(_phoneController.text.trim(), code);
+        return res['success'] == true;
+      },
     );
 
     if (!verified || !mounted) return;

@@ -59,11 +59,6 @@ class AuthController extends Controller
             'expires_in_seconds' => 600,
         ];
 
-        // Safe dev inspection only in local environment
-        if (config('app.debug') && app()->environment('local')) {
-            $response['debug_otp'] = $otp;
-        }
-
         return response()->json($response);
     }
 
@@ -162,10 +157,9 @@ class AuthController extends Controller
             ], 404);
         }
 
-        // Securely verify hashed OTP (with local dev bypass only if explicitly local and debug)
+        // Strictly verify hashed OTP with timing attack resistance
         $inputHash = hash('sha256', $validated['otp_code']);
-        $isLocalDevBypass = config('app.debug') && app()->environment('local') && in_array($validated['otp_code'], ['1234', '123456'], true);
-        $isMatch = hash_equals($user->otp_code ?? '', $inputHash) || $isLocalDevBypass;
+        $isMatch = hash_equals($user->otp_code ?? '', $inputHash);
         $isExpired = $user->otp_expires_at && Carbon::now()->isAfter($user->otp_expires_at);
 
         if (!$isMatch || $isExpired) {

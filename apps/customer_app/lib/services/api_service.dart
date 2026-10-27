@@ -41,20 +41,14 @@ class ApiService {
         };
       }
     } catch (e) {
-      // Offline fallback for smooth demo testing if server is unreachable
       return {
-        'success': true,
-        'data': {
-          'status': 'success',
-          'debug_otp': '1234',
-          'message': 'Phone number received (Demo Mode)',
-          'phone': phone,
-        },
+        'success': false,
+        'message': 'Unable to connect to CARGOO secure server. Check your internet connection.',
       };
     }
   }
 
-  /// Verify 4-digit OTP
+  /// Verify 4-digit OTP strictly with backend
   static Future<Map<String, dynamic>> verifyOtp(String phone, String otpCode) async {
     try {
       final url = Uri.parse('$baseUrl/auth/verify-otp');
@@ -82,23 +76,10 @@ class ApiService {
         };
       }
     } catch (e) {
-      // Fallback demo mode
-      if (otpCode == '1234' || otpCode == '123456') {
-        currentUser = {
-          'id': 1,
-          'name': null,
-          'phone': phone,
-          'is_profile_complete': false,
-        };
-        return {
-          'success': true,
-          'data': {
-            'status': 'success',
-            'user': currentUser,
-          },
-        };
-      }
-      return {'success': false, 'message': 'That code didn\'t match. Try again.'};
+      return {
+        'success': false,
+        'message': 'Verification failed. Could not reach security server.',
+      };
     }
   }
 

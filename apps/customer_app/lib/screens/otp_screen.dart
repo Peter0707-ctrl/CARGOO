@@ -8,12 +8,12 @@ import 'profile_screen.dart';
 import 'main_navigation_screen.dart';
 
 /// Shows the CARGOO Glassy Diamond-Orbit OTP Verification Modal
-/// (Used when updating user profile details or verifying sensitive actions)
+/// (Used when updating user profile details or verifying sensitive financial actions)
 Future<bool> showAnimatedOtpVerificationModal({
   required BuildContext context,
   required String destination,
   String verifiedSubtitle = 'Your security verification code has been confirmed.',
-  String initialOtp = '1234',
+  Future<bool> Function(String code)? customValidator,
 }) async {
   final result = await showGeneralDialog<bool>(
     context: context,
@@ -35,11 +35,11 @@ Future<bool> showAnimatedOtpVerificationModal({
               color: Colors.transparent,
               child: OtpVerificationCardV15(
                 destination: destination,
-                initialOtp: initialOtp,
                 verifiedSubtitle: verifiedSubtitle,
                 showCloseButton: true,
                 onClose: () => Navigator.of(ctx).pop(false),
                 onVerifiedContinue: () => Navigator.of(ctx).pop(true),
+                customValidator: customValidator,
               ),
             ),
           ),
@@ -62,12 +62,10 @@ Future<bool> showAnimatedOtpVerificationModal({
 
 class OtpScreen extends StatefulWidget {
   final String phoneNumber;
-  final String? debugOtp;
 
   const OtpScreen({
     super.key,
     required this.phoneNumber,
-    this.debugOtp,
   });
 
   @override
@@ -77,37 +75,10 @@ class OtpScreen extends StatefulWidget {
 class _OtpScreenState extends State<OtpScreen> {
   Map<String, dynamic>? _verifiedUser;
 
-  String _normalizeOtp4(String? raw) {
-    if (raw == null || raw.trim().isEmpty) return '1234';
-    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.length >= 4) {
-      return digits.substring(0, 4);
-    }
-    return '1234';
-  }
-
-  Future<bool> _verifyWithBackend(String code, String expectedLocalOtp) async {
-    if (code == expectedLocalOtp || code == '1234') {
-      final result = await ApiService.verifyOtp(widget.phoneNumber, code);
-      if (result['success'] == true) {
-        final user = result['data']['user'] as Map<String, dynamic>?;
-        _verifiedUser = user ?? {'phone': widget.phoneNumber, 'is_profile_complete': false};
-        await SessionManager.saveUser(_verifiedUser!);
-        return true;
-      }
-      _verifiedUser = {
-        'id': 1,
-        'name': null,
-        'phone': widget.phoneNumber,
-        'is_profile_complete': false,
-      };
-      await SessionManager.saveUser(_verifiedUser!);
-      return true;
-    }
-
+  Future<bool> _verifyWithBackend(String code) async {
     final result = await ApiService.verifyOtp(widget.phoneNumber, code);
     if (result['success'] == true) {
-      final user = result['data']['user'] as Map<String, dynamic>?;
+      final user = result['data']?['user'] as Map<String, dynamic>?;
       _verifiedUser = user ?? {'phone': widget.phoneNumber, 'is_profile_complete': false};
       await SessionManager.saveUser(_verifiedUser!);
       return true;
@@ -136,8 +107,6 @@ class _OtpScreenState extends State<OtpScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final initialOtp = _normalizeOtp4(widget.debugOtp);
-
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -169,7 +138,6 @@ class _OtpScreenState extends State<OtpScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
               child: OtpVerificationCardV15(
                 destination: widget.phoneNumber,
-                initialOtp: initialOtp,
                 verifiedSubtitle: 'Your security verification code has been confirmed.',
                 customValidator: _verifyWithBackend,
                 onVerifiedContinue: _handleContinueAfterVerified,
@@ -192,17 +160,15 @@ enum _OrbitOtpPhase {
 
 class OtpVerificationCardV15 extends StatefulWidget {
   final String destination;
-  final String initialOtp;
   final String verifiedSubtitle;
   final bool showCloseButton;
   final VoidCallback? onClose;
   final VoidCallback onVerifiedContinue;
-  final Future<bool> Function(String code, String expectedOtp)? customValidator;
+  final Future<bool> Function(String code)? customValidator;
 
   const OtpVerificationCardV15({
     super.key,
     required this.destination,
-    this.initialOtp = '1234',
     this.verifiedSubtitle = 'Your security verification code has been confirmed.',
     this.showCloseButton = false,
     this.onClose,
@@ -230,17 +196,12 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
   final FocusNode _hiddenFocusNode = FocusNode();
 
   _OrbitOtpPhase _phase = _OrbitOtpPhase.typing;
-  late String _expectedOtp;
-  int _secondsRemaining = 38;
+  int _secondsRemaining = 45;
   Timer? _resendTimer;
   Timer? _cursorTimer;
   bool _showCursor = true;
   bool _hasNavigated = false;
 
-  // Controls the 0.0 -> 1.0 choreography:
-  // 0.00 -> 0.25: Row morphs into 4-point Diamond Cross (Top, Left, Right, Bottom)
-  // 0.25 -> 0.78: 360-degree Orbital Spin of the 4 boxes
-  // 0.78 -> 1.00: All 4 boxes converge into the single central square
   late AnimationController _orbitController;
   late AnimationController _shakeController;
   late AnimationController _pulseController;
@@ -248,9 +209,6 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
   @override
   void initState() {
     super.initState();
-    _expectedOtp = widget.initialOtp.length == 4
-        ? widget.initialOtp
-        : (1000 + math.Random().nextInt(9000)).toString();
 
     _orbitController = AnimationController(
       vsync: this,
@@ -295,7 +253,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
 
   void _startResendTimer() {
     _resendTimer?.cancel();
-    setState(() => _secondsRemaining = 38);
+    setState(() => _secondsRemaining = 45);
     _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       if (_secondsRemaining > 0) {
@@ -348,36 +306,6 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     }
   }
 
-  Future<void> _autoFillOtp() async {
-    if (_phase != _OrbitOtpPhase.typing && _phase != _OrbitOtpPhase.wrongError) {
-      return;
-    }
-    setState(() {
-      _phase = _OrbitOtpPhase.typing;
-      for (int i = 0; i < 4; i++) {
-        _digits[i] = '';
-      }
-      _hiddenController.clear();
-    });
-
-    for (int i = 0; i < 4; i++) {
-      await Future.delayed(const Duration(milliseconds: 85));
-      if (!mounted) return;
-      final sub = _expectedOtp.substring(0, i + 1);
-      _hiddenController.value = TextEditingValue(
-        text: sub,
-        selection: TextSelection.collapsed(offset: sub.length),
-      );
-      setState(() => _digits[i] = _expectedOtp[i]);
-      HapticFeedback.lightImpact();
-    }
-
-    await Future.delayed(const Duration(milliseconds: 140));
-    if (mounted) {
-      _startOrbitVerification();
-    }
-  }
-
   Future<void> _startOrbitVerification() async {
     final code = _digits.join();
     if (code.length < 4 || _phase != _OrbitOtpPhase.typing) return;
@@ -395,7 +323,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     await orbitFuture;
     if (!mounted) return;
 
-    // Brief central spinning ring phase (like 00:02 in the video)
+    // Center spinning phase while awaiting backend response
     setState(() {
       _phase = _OrbitOtpPhase.centerSpinning;
     });
@@ -411,7 +339,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
       });
       _pulseController.forward(from: 0.0);
 
-      // Automatically enter the next screen right after showing Verified Successfully!
+      // Strictly auto-enter next screen on real verification success
       Future.delayed(const Duration(milliseconds: 700), () {
         if (mounted && !_hasNavigated) {
           _hasNavigated = true;
@@ -419,14 +347,13 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
         }
       });
     } else {
-      // Wrong OTP code!
+      // Wrong OTP code
       HapticFeedback.heavyImpact();
       setState(() {
         _phase = _OrbitOtpPhase.wrongError;
       });
       _shakeController.forward(from: 0.0);
 
-      // Show "Wrong OTP Code" in center, then reverse boxes back out and clear for retry
       await Future.delayed(const Duration(milliseconds: 850));
       if (!mounted) return;
 
@@ -438,7 +365,6 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
           _digits[i] = '';
         }
         _hiddenController.clear();
-        // Keep _phase as wrongError until user starts typing next digit so they see "Wrong OTP Code"
       });
       _hiddenFocusNode.requestFocus();
     }
@@ -446,21 +372,20 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
 
   Future<bool> _validateCode(String code) async {
     if (widget.customValidator != null) {
-      return await widget.customValidator!(code, _expectedOtp);
+      return await widget.customValidator!(code);
     }
-    return code == _expectedOtp;
+    return false;
   }
 
-  void _handleResendCode() {
+  Future<void> _handleResendCode() async {
     if (_secondsRemaining > 0 ||
         _phase == _OrbitOtpPhase.orbitingAndMerging ||
         _phase == _OrbitOtpPhase.centerSpinning) {
       return;
     }
-    final nextRandom = (1000 + math.Random().nextInt(9000)).toString();
+
     _orbitController.reset();
     setState(() {
-      _expectedOtp = nextRandom;
       _phase = _OrbitOtpPhase.typing;
       for (int i = 0; i < 4; i++) {
         _digits[i] = '';
@@ -469,6 +394,9 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     });
     _startResendTimer();
     _hiddenFocusNode.requestFocus();
+
+    // Trigger real carrier SMS dispatch via Africa's Talking API
+    await ApiService.requestOtp(widget.destination);
   }
 
   @override
@@ -567,7 +495,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
               _buildDiamondTopBadge(isVerified: isVerified, isWrong: isWrong),
               const SizedBox(height: 22),
 
-              // 2. Animated Header Title ("Verify OTP" / "Verified Successfully" / "Wrong OTP Code")
+              // 2. Animated Header Title
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 280),
                 child: isVerified
@@ -662,7 +590,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
               ),
               const SizedBox(height: 18),
 
-              // 4. Center Stage: 4 Boxes -> Diamond Cross -> 360° Orbit -> Center Merge Square!
+              // 4. Center Stage: 4 Boxes -> Diamond Cross -> 360° Orbit -> Center Merge Square
               GestureDetector(
                 onTap: () {
                   if (!isVerifying && !isVerified) {
@@ -694,7 +622,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
 
               const SizedBox(height: 10),
 
-              // 5. Resend Timer Row ("Didn't receive the code? Resend in 00:37")
+              // 5. Resend Timer Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -741,51 +669,11 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
             ],
           ),
         ),
-
-        const SizedBox(height: 18),
-
-        // 7. Quick Demo OTP Helper Pill
-        GestureDetector(
-          onTap: _autoFillOtp,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFCAD4CC)),
-            ),
-            child: RichText(
-              text: TextSpan(
-                style: const TextStyle(
-                  fontFamily: 'Segoe UI Variable',
-                  fontSize: 13,
-                  color: _cargooMutedText,
-                  fontWeight: FontWeight.w600,
-                ),
-                children: [
-                  const TextSpan(text: 'Active OTP Code: '),
-                  TextSpan(
-                    text: _expectedOtp,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: _cargooDarkNavy,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  const TextSpan(
-                    text: '  (Tap to auto-fill)',
-                    style: TextStyle(fontSize: 11.5, color: _cargooBlue),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
       ],
     );
   }
 
-  /// Top 45-degree rotated rounded square Diamond Badge (just like the video!)
+  /// Top 45-degree rotated rounded square Diamond Badge
   Widget _buildDiamondTopBadge({
     required bool isVerified,
     required bool isWrong,
@@ -812,7 +700,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
       height: 68,
       child: Center(
         child: Transform.rotate(
-          angle: math.pi / 4, // 45° diamond
+          angle: math.pi / 4,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 300),
             width: 52,
@@ -830,7 +718,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
               ],
             ),
             child: Transform.rotate(
-              angle: -math.pi / 4, // Keep icon upright inside diamond
+              angle: -math.pi / 4,
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 250),
                 transitionBuilder: (child, anim) =>
@@ -850,18 +738,16 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
   }
 
   /// Builds the 4-box horizontal row that morphs into a Diamond Cross,
-  /// orbits 360 degrees, and merges into a single center box!
+  /// orbits 360 degrees, and merges into a single center box
   Widget _buildOrbitStage() {
     final t = _orbitController.value;
 
-    // If fully merged in the center (centerSpinning, verifiedSuccess, or wrongError before reverse)
     if (_phase == _OrbitOtpPhase.centerSpinning ||
         _phase == _OrbitOtpPhase.verifiedSuccess ||
         (_phase == _OrbitOtpPhase.wrongError && t > 0.8)) {
       return Center(child: _buildMergedCenterBox());
     }
 
-    // Horizontal row positions (when t == 0.0)
     const List<Offset> rowPositions = [
       Offset(-99, 0),
       Offset(-33, 0),
@@ -869,8 +755,6 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
       Offset(99, 0),
     ];
 
-    // Diamond Cross angles:
-    // Box 0 -> Left (pi), Box 1 -> Top (-pi/2), Box 2 -> Bottom (pi/2), Box 3 -> Right (0)
     const List<double> diamondBaseAngles = [
       math.pi,
       -math.pi / 2,
@@ -888,13 +772,11 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
         double opacity = 1.0;
 
         if (t <= 0.25) {
-          // Stage 1 (0.0 -> 0.25): Smoothly move from Horizontal Row into Diamond Cross
           final p = Curves.easeInOutCubic.transform(t / 0.25);
           final targetX = math.cos(diamondBaseAngles[i]) * diamondRadius;
           final targetY = math.sin(diamondBaseAngles[i]) * diamondRadius;
           pos = Offset.lerp(rowPositions[i], Offset(targetX, targetY), p)!;
         } else if (t <= 0.78) {
-          // Stage 2 (0.25 -> 0.78): 360-degree Orbital Spin around center!
           final p = Curves.easeInOutSine.transform((t - 0.25) / 0.53);
           final currentAngle = diamondBaseAngles[i] + (p * math.pi * 2.0);
           pos = Offset(
@@ -903,7 +785,6 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
           );
           boxRotation = p * math.pi * 2.0;
         } else {
-          // Stage 3 (0.78 -> 1.0): Converge/Implode into Center (0, 0)
           final p = Curves.easeInBack.transform(((t - 0.78) / 0.22).clamp(0.0, 1.0));
           final radius = diamondRadius * (1.0 - p);
           final currentAngle = diamondBaseAngles[i] + math.pi * 2.0;
@@ -1003,7 +884,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     );
   }
 
-  /// The single central square shown after the 4 boxes converge in the middle (00:02 - 00:03)
+  /// The single central square shown after the 4 boxes converge in the middle
   Widget _buildMergedCenterBox() {
     final isVerified = _phase == _OrbitOtpPhase.verifiedSuccess;
     final isWrong = _phase == _OrbitOtpPhase.wrongError;
