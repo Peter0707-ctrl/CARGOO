@@ -133,7 +133,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 10),
               const Text(
-                'We will send a 6-digit verification code via SMS to confirm your account.',
+                'We will send a 4-digit verification code via SMS to confirm your account.',
                 style: TextStyle(
                   fontFamily: 'Segoe UI Variable',
                   fontSize: 14,
