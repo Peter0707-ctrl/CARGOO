@@ -7,19 +7,19 @@ import '../services/session_manager.dart';
 import 'profile_screen.dart';
 import 'main_navigation_screen.dart';
 
-/// Shows the V15 Animated OTP Verification Card as a modal dialog
-/// (Used when verifying profile updates or sensitive account changes)
+/// Shows the CARGOO Glassy Diamond-Orbit OTP Verification Modal
+/// (Used when updating user profile details or verifying sensitive actions)
 Future<bool> showAnimatedOtpVerificationModal({
   required BuildContext context,
   required String destination,
-  String verifiedSubtitle = 'Your profile update has been verified.',
+  String verifiedSubtitle = 'Your security verification code has been confirmed.',
   String initialOtp = '1234',
 }) async {
   final result = await showGeneralDialog<bool>(
     context: context,
     barrierDismissible: false,
     barrierLabel: 'OTP Verification',
-    barrierColor: const Color(0xFF0F172A).withValues(alpha: 0.55),
+    barrierColor: const Color(0xFF1E2822).withValues(alpha: 0.62),
     transitionDuration: const Duration(milliseconds: 280),
     pageBuilder: (ctx, anim1, anim2) {
       return SafeArea(
@@ -95,7 +95,6 @@ class _OtpScreenState extends State<OtpScreen> {
         await SessionManager.saveUser(_verifiedUser!);
         return true;
       }
-      // If local expected OTP matched (e.g. 4-digit generated OTP in demo/tunnel mode), succeed gracefully
       _verifiedUser = {
         'id': 1,
         'name': null,
@@ -106,7 +105,6 @@ class _OtpScreenState extends State<OtpScreen> {
       return true;
     }
 
-    // Also try backend directly in case backend issued a different code
     final result = await ApiService.verifyOtp(widget.phoneNumber, code);
     if (result['success'] == true) {
       final user = result['data']['user'] as Map<String, dynamic>?;
@@ -144,11 +142,11 @@ class _OtpScreenState extends State<OtpScreen> {
       value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: Color(0xFFF3F5F9),
+        systemNavigationBarColor: Color(0xFFF2F5F1),
         systemNavigationBarIconBrightness: Brightness.dark,
       ),
       child: Scaffold(
-        backgroundColor: const Color(0xFFF3F5F9),
+        backgroundColor: const Color(0xFFF2F5F1),
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
@@ -158,15 +156,9 @@ class _OtpScreenState extends State<OtpScreen> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+                border: Border.all(color: const Color(0xFFCAD4CC)),
               ),
-              child: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A), size: 18),
+              child: const Icon(Icons.arrow_back_rounded, color: Color(0xFF1E2822), size: 18),
             ),
             onPressed: () => Navigator.pop(context),
           ),
@@ -174,11 +166,11 @@ class _OtpScreenState extends State<OtpScreen> {
         body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
               child: OtpVerificationCardV15(
                 destination: widget.phoneNumber,
                 initialOtp: initialOtp,
-                verifiedSubtitle: 'Your account has been verified.',
+                verifiedSubtitle: 'Your security verification code has been confirmed.',
                 customValidator: _verifyWithBackend,
                 onVerifiedContinue: _handleContinueAfterVerified,
               ),
@@ -190,12 +182,12 @@ class _OtpScreenState extends State<OtpScreen> {
   }
 }
 
-enum _OtpV15State {
-  idle,
-  verifying,
-  unlockedPreCheck,
-  verified,
-  error,
+enum _OrbitOtpPhase {
+  typing,
+  orbitingAndMerging,
+  centerSpinning,
+  verifiedSuccess,
+  wrongError,
 }
 
 class OtpVerificationCardV15 extends StatefulWidget {
@@ -211,7 +203,7 @@ class OtpVerificationCardV15 extends StatefulWidget {
     super.key,
     required this.destination,
     this.initialOtp = '1234',
-    this.verifiedSubtitle = 'Your account has been verified.',
+    this.verifiedSubtitle = 'Your security verification code has been confirmed.',
     this.showCloseButton = false,
     this.onClose,
     required this.onVerifiedContinue,
@@ -224,44 +216,60 @@ class OtpVerificationCardV15 extends StatefulWidget {
 
 class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     with TickerProviderStateMixin {
+  // CARGOO Brand Palette
+  static const Color _cargooBlue = Color(0xFF4B7B9F);
+  static const Color _cargooDarkNavy = Color(0xFF2C4A63);
+  static const Color _cargooSoftBlue = Color(0xFFE5EEF5);
+  static const Color _cargooDarkText = Color(0xFF1E2822);
+  static const Color _cargooMutedText = Color(0xFF6B7E74);
+  static const Color _cargooGreen = Color(0xFF16A34A);
+  static const Color _cargooRed = Color(0xFFE11D48);
+
   final List<String> _digits = ['', '', '', ''];
   final TextEditingController _hiddenController = TextEditingController();
   final FocusNode _hiddenFocusNode = FocusNode();
 
-  _OtpV15State _state = _OtpV15State.idle;
+  _OrbitOtpPhase _phase = _OrbitOtpPhase.typing;
   late String _expectedOtp;
-  int _secondsRemaining = 20;
+  int _secondsRemaining = 38;
   Timer? _resendTimer;
   Timer? _cursorTimer;
   bool _showCursor = true;
-  bool _isDroppingOut = false;
+  bool _hasNavigated = false;
+  OverlayEntry? _smsOverlayEntry;
 
-  late AnimationController _verifySweepController;
+  // Controls the 0.0 -> 1.0 choreography:
+  // 0.00 -> 0.25: Row morphs into 4-point Diamond Cross (Top, Left, Right, Bottom)
+  // 0.25 -> 0.78: 360-degree Orbital Spin of the 4 boxes
+  // 0.78 -> 1.00: All 4 boxes converge into the single central square
+  late AnimationController _orbitController;
   late AnimationController _shakeController;
-  late AnimationController _successBounceController;
+  late AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
-    _expectedOtp = widget.initialOtp.length == 4 ? widget.initialOtp : '1234';
+    _expectedOtp = widget.initialOtp.length == 4
+        ? widget.initialOtp
+        : (1000 + math.Random().nextInt(9000)).toString();
 
-    _verifySweepController = AnimationController(
+    _orbitController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 950),
+      duration: const Duration(milliseconds: 1450),
     );
 
     _shakeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 460),
+      duration: const Duration(milliseconds: 500),
     );
 
-    _successBounceController = AnimationController(
+    _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 520),
+      duration: const Duration(milliseconds: 380),
     );
 
     _startResendTimer();
-    _cursorTimer = Timer.periodic(const Duration(milliseconds: 530), (_) {
+    _cursorTimer = Timer.periodic(const Duration(milliseconds: 520), (_) {
       if (mounted) {
         setState(() => _showCursor = !_showCursor);
       }
@@ -270,25 +278,159 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _hiddenFocusNode.requestFocus();
+        Future.delayed(const Duration(milliseconds: 700), () {
+          if (mounted) _showIncomingSmsBanner();
+        });
       }
     });
   }
 
   @override
   void dispose() {
+    _removeSmsBanner();
     _resendTimer?.cancel();
     _cursorTimer?.cancel();
-    _verifySweepController.dispose();
+    _orbitController.dispose();
     _shakeController.dispose();
-    _successBounceController.dispose();
+    _pulseController.dispose();
     _hiddenController.dispose();
     _hiddenFocusNode.dispose();
     super.dispose();
   }
 
+  void _removeSmsBanner() {
+    _smsOverlayEntry?.remove();
+    _smsOverlayEntry = null;
+  }
+
+  void _showIncomingSmsBanner() {
+    if (!mounted || _phase == _OrbitOtpPhase.verifiedSuccess) return;
+    _removeSmsBanner();
+    HapticFeedback.heavyImpact();
+
+    final overlay = Overlay.maybeOf(context);
+    if (overlay == null) return;
+
+    _smsOverlayEntry = OverlayEntry(
+      builder: (ctx) {
+        return Positioned(
+          top: MediaQuery.of(ctx).padding.top + 10,
+          left: 14,
+          right: 14,
+          child: Material(
+            color: Colors.transparent,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: -90.0, end: 0.0),
+              duration: const Duration(milliseconds: 380),
+              curve: Curves.easeOutBack,
+              builder: (context, dy, child) => Transform.translate(
+                offset: Offset(0, dy),
+                child: child,
+              ),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: _cargooDarkText,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: _cargooBlue.withValues(alpha: 0.5)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.25),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: _cargooBlue,
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: const Icon(Icons.sms_rounded, color: Colors.white, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              const Text(
+                                'CARGOO SMS',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '• now',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.6),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Your security OTP code is $_expectedOtp',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: () {
+                        _removeSmsBanner();
+                        _autoFillOtp();
+                      },
+                      style: TextButton.styleFrom(
+                        backgroundColor: _cargooBlue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        minimumSize: Size.zero,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: Text(
+                        'Use $_expectedOtp',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(_smsOverlayEntry!);
+    Future.delayed(const Duration(seconds: 7), () {
+      if (mounted) _removeSmsBanner();
+    });
+  }
+
   void _startResendTimer() {
     _resendTimer?.cancel();
-    setState(() => _secondsRemaining = 20);
+    setState(() => _secondsRemaining = 38);
     _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       if (_secondsRemaining > 0) {
@@ -297,25 +439,6 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
         timer.cancel();
       }
     });
-  }
-
-  String _maskDestination(String raw) {
-    final trimmed = raw.trim();
-    if (trimmed.contains('@')) {
-      final parts = trimmed.split('@');
-      final name = parts[0];
-      final maskedName = name.length > 2
-          ? '${name.substring(0, 2)}${'•' * (name.length - 2)}'
-          : '$name•••';
-      return '$maskedName@${parts[1]}';
-    }
-    final clean = trimmed.replaceAll(' ', '');
-    if (clean.length >= 9) {
-      final prefix = clean.substring(0, clean.length - 6);
-      final suffix = clean.substring(clean.length - 3);
-      return '$prefix ••• $suffix';
-    }
-    return trimmed;
   }
 
   int get _enteredCount => _digits.where((d) => d.isNotEmpty).length;
@@ -328,10 +451,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
   }
 
   void _onHiddenTextChanged(String value) {
-    if (_state == _OtpV15State.verifying ||
-        _state == _OtpV15State.unlockedPreCheck ||
-        _state == _OtpV15State.verified ||
-        _isDroppingOut) {
+    if (_phase != _OrbitOtpPhase.typing && _phase != _OrbitOtpPhase.wrongError) {
       return;
     }
 
@@ -346,9 +466,7 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     }
 
     setState(() {
-      if (_state == _OtpV15State.error) {
-        _state = _OtpV15State.idle;
-      }
+      _phase = _OrbitOtpPhase.typing;
       for (int i = 0; i < 4; i++) {
         _digits[i] = i < clamped.length ? clamped[i] : '';
       }
@@ -358,21 +476,19 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
 
     if (clamped.length == 4) {
       Future.delayed(const Duration(milliseconds: 140), () {
-        if (mounted && _enteredCount == 4 && _state == _OtpV15State.idle) {
-          _triggerVerify();
+        if (mounted && _enteredCount == 4 && _phase == _OrbitOtpPhase.typing) {
+          _startOrbitVerification();
         }
       });
     }
   }
 
-  Future<void> _autoTypeDemoOtp() async {
-    if (_state == _OtpV15State.verifying ||
-        _state == _OtpV15State.verified ||
-        _isDroppingOut) {
+  Future<void> _autoFillOtp() async {
+    if (_phase != _OrbitOtpPhase.typing && _phase != _OrbitOtpPhase.wrongError) {
       return;
     }
     setState(() {
-      _state = _OtpV15State.idle;
+      _phase = _OrbitOtpPhase.typing;
       for (int i = 0; i < 4; i++) {
         _digits[i] = '';
       }
@@ -380,80 +496,86 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     });
 
     for (int i = 0; i < 4; i++) {
-      await Future.delayed(const Duration(milliseconds: 95));
+      await Future.delayed(const Duration(milliseconds: 85));
       if (!mounted) return;
       final sub = _expectedOtp.substring(0, i + 1);
       _hiddenController.value = TextEditingValue(
         text: sub,
         selection: TextSelection.collapsed(offset: sub.length),
       );
-      setState(() {
-        _digits[i] = _expectedOtp[i];
-      });
+      setState(() => _digits[i] = _expectedOtp[i]);
       HapticFeedback.lightImpact();
     }
 
-    await Future.delayed(const Duration(milliseconds: 150));
+    await Future.delayed(const Duration(milliseconds: 140));
     if (mounted) {
-      _triggerVerify();
+      _startOrbitVerification();
     }
   }
 
-  Future<void> _triggerVerify() async {
+  Future<void> _startOrbitVerification() async {
     final code = _digits.join();
-    if (code.length < 4 || _state == _OtpV15State.verifying) return;
+    if (code.length < 4 || _phase != _OrbitOtpPhase.typing) return;
 
+    _removeSmsBanner();
     FocusScope.of(context).unfocus();
 
     setState(() {
-      _state = _OtpV15State.verifying;
+      _phase = _OrbitOtpPhase.orbitingAndMerging;
     });
 
-    _verifySweepController.forward(from: 0.0);
+    // Start the Diamond Formation -> 360° Orbit -> Center Merge animation
+    final orbitFuture = _orbitController.forward(from: 0.0);
+    final validateFuture = _validateCode(code);
 
-    // Run both the sweep animation (950ms) and validation check in parallel
-    final results = await Future.wait([
-      Future.delayed(const Duration(milliseconds: 950)),
-      _validateCode(code),
-    ]);
-
+    await orbitFuture;
     if (!mounted) return;
-    final isSuccess = results[1] as bool;
+
+    // Brief central spinning ring phase (like 00:02 in the video)
+    setState(() {
+      _phase = _OrbitOtpPhase.centerSpinning;
+    });
+
+    final isSuccess = await validateFuture;
+    await Future.delayed(const Duration(milliseconds: 360));
+    if (!mounted) return;
 
     if (isSuccess) {
-      // Brief unlocked icon state just like V15 video before morphing to green checkmark
-      setState(() => _state = _OtpV15State.unlockedPreCheck);
       HapticFeedback.mediumImpact();
-      await Future.delayed(const Duration(milliseconds: 160));
-      if (!mounted) return;
+      setState(() {
+        _phase = _OrbitOtpPhase.verifiedSuccess;
+      });
+      _pulseController.forward(from: 0.0);
 
-      setState(() => _state = _OtpV15State.verified);
-      _successBounceController.forward(from: 0.0);
+      // Automatically enter the next screen right after showing Verified Successfully!
+      Future.delayed(const Duration(milliseconds: 700), () {
+        if (mounted && !_hasNavigated) {
+          _hasNavigated = true;
+          widget.onVerifiedContinue();
+        }
+      });
     } else {
-      // Mismatch error state: horizontal shake + red boxes + staggered downward drop-out
+      // Wrong OTP code!
       HapticFeedback.heavyImpact();
       setState(() {
-        _state = _OtpV15State.error;
+        _phase = _OrbitOtpPhase.wrongError;
       });
       _shakeController.forward(from: 0.0);
 
-      // Hold the red digits briefly so user sees the mismatch, then cascade-drop them downward out of the boxes
-      await Future.delayed(const Duration(milliseconds: 520));
+      // Show "Wrong OTP Code" in center, then reverse boxes back out and clear for retry
+      await Future.delayed(const Duration(milliseconds: 850));
       if (!mounted) return;
 
-      setState(() => _isDroppingOut = true);
-      for (int i = 0; i < 4; i++) {
-        await Future.delayed(const Duration(milliseconds: 65));
-        if (!mounted) return;
-        setState(() {
+      await _orbitController.reverse(from: 0.85);
+      if (!mounted) return;
+
+      setState(() {
+        for (int i = 0; i < 4; i++) {
           _digits[i] = '';
-        });
-      }
-      _hiddenController.clear();
-
-      await Future.delayed(const Duration(milliseconds: 180));
-      if (!mounted) return;
-      setState(() => _isDroppingOut = false);
+        }
+        _hiddenController.clear();
+        // Keep _phase as wrongError until user starts typing next digit so they see "Wrong OTP Code"
+      });
       _hiddenFocusNode.requestFocus();
     }
   }
@@ -466,11 +588,16 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
   }
 
   void _handleResendCode() {
-    if (_secondsRemaining > 0 || _state == _OtpV15State.verifying) return;
+    if (_secondsRemaining > 0 ||
+        _phase == _OrbitOtpPhase.orbitingAndMerging ||
+        _phase == _OrbitOtpPhase.centerSpinning) {
+      return;
+    }
     final nextRandom = (1000 + math.Random().nextInt(9000)).toString();
+    _orbitController.reset();
     setState(() {
       _expectedOtp = nextRandom;
-      _state = _OtpV15State.idle;
+      _phase = _OrbitOtpPhase.typing;
       for (int i = 0; i < 4; i++) {
         _digits[i] = '';
       }
@@ -478,19 +605,30 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     });
     _startResendTimer();
     _hiddenFocusNode.requestFocus();
-    HapticFeedback.lightImpact();
+    _showIncomingSmsBanner();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isVerified = _state == _OtpV15State.verified;
-    final isError = _state == _OtpV15State.error;
-    final isVerifying = _state == _OtpV15State.verifying || _state == _OtpV15State.unlockedPreCheck;
+    final isVerified = _phase == _OrbitOtpPhase.verifiedSuccess;
+    final isWrong = _phase == _OrbitOtpPhase.wrongError;
+    final isVerifying = _phase == _OrbitOtpPhase.orbitingAndMerging ||
+        _phase == _OrbitOtpPhase.centerSpinning;
+
+    Color cardBorderColor = _cargooBlue.withValues(alpha: 0.35);
+    Color glowColor = _cargooBlue.withValues(alpha: 0.12);
+    if (isVerified) {
+      cardBorderColor = _cargooGreen.withValues(alpha: 0.65);
+      glowColor = _cargooGreen.withValues(alpha: 0.18);
+    } else if (isWrong) {
+      cardBorderColor = _cargooRed.withValues(alpha: 0.65);
+      glowColor = _cargooRed.withValues(alpha: 0.16);
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Hidden TextField to capture native keyboard input seamlessly
+        // Hidden native keyboard input receiver
         SizedBox(
           width: 1,
           height: 1,
@@ -510,25 +648,36 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
           ),
         ),
 
-        // Main V15 White Card
-        Container(
+        // Main Glassy CARGOO Card
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 320),
           width: double.infinity,
           constraints: const BoxConstraints(maxWidth: 390),
-          padding: const EdgeInsets.fromLTRB(26, 28, 26, 26),
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 26),
           decoration: BoxDecoration(
-            color: Colors.white,
             borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+            border: Border.all(color: cardBorderColor, width: 1.6),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                isVerified
+                    ? const Color(0xFFF0FDF4)
+                    : (isWrong ? const Color(0xFFFFF1F2) : const Color(0xFFF4F8FB)),
+              ],
+            ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF0F172A).withValues(alpha: 0.08),
+                color: glowColor,
                 blurRadius: 32,
-                offset: const Offset(0, 14),
+                spreadRadius: 2,
+                offset: const Offset(0, 12),
               ),
               BoxShadow(
-                color: const Color(0xFF0F172A).withValues(alpha: 0.03),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
+                color: _cargooDarkText.withValues(alpha: 0.06),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
@@ -543,289 +692,226 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
                     child: Container(
                       padding: const EdgeInsets.all(6),
                       decoration: const BoxDecoration(
-                        color: Color(0xFFF1F5F9),
+                        color: _cargooSoftBlue,
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.close_rounded, size: 18, color: Color(0xFF64748B)),
+                      child: const Icon(Icons.close_rounded, size: 18, color: _cargooDarkNavy),
                     ),
                   ),
                 ),
 
-              // 1. Top Animated Lock / Checkmark Badge
-              _buildTopAnimatedBadge(isVerified: isVerified, isError: isError),
+              // 1. Top 45° Rotated Diamond Badge (Key -> Shield Check -> Alert)
+              _buildDiamondTopBadge(isVerified: isVerified, isWrong: isWrong),
               const SizedBox(height: 22),
 
-              // 2. Animated Title ("Verify it's you" -> "You're verified")
+              // 2. Animated Header Title ("Verify OTP" / "Verified Successfully" / "Wrong OTP Code")
               AnimatedSwitcher(
-                duration: const Duration(milliseconds: 320),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, animation) {
-                  return FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.25),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  );
-                },
-                child: Text(
-                  isVerified ? "You're verified" : "Verify it's you",
-                  key: ValueKey<String>(isVerified ? 'title_verified' : 'title_verify'),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontFamily: 'Segoe UI Variable',
-                    fontSize: 23,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF0F172A),
-                    letterSpacing: -0.4,
-                  ),
-                ),
+                duration: const Duration(milliseconds: 280),
+                child: isVerified
+                    ? RichText(
+                        key: const ValueKey('hdr_verified'),
+                        textAlign: TextAlign.center,
+                        text: const TextSpan(
+                          style: TextStyle(
+                            fontFamily: 'Segoe UI Variable',
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.3,
+                          ),
+                          children: [
+                            TextSpan(
+                              text: 'Verified ',
+                              style: TextStyle(color: _cargooDarkText),
+                            ),
+                            TextSpan(
+                              text: 'Successfully',
+                              style: TextStyle(color: _cargooGreen),
+                            ),
+                          ],
+                        ),
+                      )
+                    : (isWrong
+                        ? RichText(
+                            key: const ValueKey('hdr_wrong'),
+                            textAlign: TextAlign.center,
+                            text: const TextSpan(
+                              style: TextStyle(
+                                fontFamily: 'Segoe UI Variable',
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.3,
+                              ),
+                              children: [
+                                TextSpan(
+                                  text: 'Wrong ',
+                                  style: TextStyle(color: _cargooRed),
+                                ),
+                                TextSpan(
+                                  text: 'OTP Code',
+                                  style: TextStyle(color: _cargooDarkText),
+                                ),
+                              ],
+                            ),
+                          )
+                        : RichText(
+                            key: const ValueKey('hdr_verify'),
+                            textAlign: TextAlign.center,
+                            text: const TextSpan(
+                              style: TextStyle(
+                                fontFamily: 'Segoe UI Variable',
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.3,
+                              ),
+                              children: [
+                                TextSpan(
+                                  text: 'Verify ',
+                                  style: TextStyle(color: _cargooDarkText),
+                                ),
+                                TextSpan(
+                                  text: 'OTP',
+                                  style: TextStyle(color: _cargooBlue),
+                                ),
+                              ],
+                            ),
+                          )),
               ),
               const SizedBox(height: 8),
 
-              // 3. Animated Subtitle
+              // 3. Subtitle
               AnimatedSwitcher(
-                duration: const Duration(milliseconds: 320),
-                transitionBuilder: (child, animation) {
-                  return FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.2),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  );
-                },
-                child: isVerified
-                    ? Text(
-                        widget.verifiedSubtitle,
-                        key: const ValueKey('sub_verified'),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF64748B),
-                          height: 1.45,
-                        ),
-                      )
-                    : Column(
-                        key: const ValueKey('sub_unverified'),
-                        children: [
-                          const Text(
-                            'Enter the 4-digit code we just sent to',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF64748B),
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            _maskDestination(widget.destination),
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF1E293B),
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ],
-                      ),
+                duration: const Duration(milliseconds: 260),
+                child: Text(
+                  isVerified
+                      ? widget.verifiedSubtitle
+                      : (isWrong
+                          ? 'Wrong verification code entered. Please try again.'
+                          : 'Enter the 4-digit security code sent to ${widget.destination}'),
+                  key: ValueKey(isVerified ? 'sub_ok' : (isWrong ? 'sub_err' : 'sub_idle')),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12.8,
+                    fontWeight: isWrong ? FontWeight.w700 : FontWeight.w500,
+                    color: isWrong ? _cargooRed : _cargooMutedText,
+                    height: 1.4,
+                  ),
+                ),
               ),
-              const SizedBox(height: 26),
+              const SizedBox(height: 18),
 
-              // 4. 4-Digit Slot-Roll Boxes with Shake & Success Bounce
+              // 4. Center Stage: 4 Boxes -> Diamond Cross -> 360° Orbit -> Center Merge Square!
               GestureDetector(
                 onTap: () {
-                  if (!isVerified && !isVerifying) {
+                  if (!isVerifying && !isVerified) {
                     _hiddenFocusNode.requestFocus();
                     SystemChannels.textInput.invokeMethod('TextInput.show');
                   }
                 },
-                child: AnimatedBuilder(
-                  animation: Listenable.merge([_shakeController, _successBounceController]),
-                  builder: (context, child) {
-                    // Horizontal sine shake on error
-                    final double shakeOffset = math.sin(_shakeController.value * math.pi * 4) *
-                        10.0 *
-                        (1.0 - _shakeController.value);
-
-                    // Scale pulse on success
-                    final double bounceScale = _successBounceController.value > 0
-                        ? 1.0 + math.sin(_successBounceController.value * math.pi) * 0.055
-                        : 1.0;
-
-                    return Transform.translate(
-                      offset: Offset(shakeOffset, 0),
-                      child: Transform.scale(
-                        scale: bounceScale,
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(4, (index) {
-                      return Padding(
-                        padding: EdgeInsets.only(right: index < 3 ? 12 : 0),
-                        child: _buildDigitSlotBox(index),
+                child: SizedBox(
+                  height: 176,
+                  width: double.infinity,
+                  child: AnimatedBuilder(
+                    animation: Listenable.merge([
+                      _orbitController,
+                      _shakeController,
+                      _pulseController,
+                    ]),
+                    builder: (context, _) {
+                      final shakeDx = math.sin(_shakeController.value * math.pi * 4) *
+                          10.0 *
+                          (1.0 - _shakeController.value);
+                      return Transform.translate(
+                        offset: Offset(shakeDx, 0),
+                        child: _buildOrbitStage(),
                       );
-                    }),
+                    },
                   ),
                 ),
               ),
 
-              // 5. Animated Error Banner ("! That code didn't match. Try again.")
-              AnimatedSize(
-                duration: const Duration(milliseconds: 240),
-                curve: Curves.easeOutCubic,
-                child: isError
-                    ? Padding(
-                        padding: const EdgeInsets.only(top: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 17,
-                              height: 17,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFE11D48),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Center(
-                                child: Text(
-                                  '!',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 7),
-                            const Text(
-                              "That code didn't match. Try again.",
-                              style: TextStyle(
-                                fontSize: 12.8,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFFE11D48),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : const SizedBox.shrink(),
-              ),
+              const SizedBox(height: 10),
 
-              const SizedBox(height: 24),
-
-              // 6. Primary Action Button (Verify code -> Verifying sweep -> Continue ->)
-              _buildSweepActionButton(
-                isVerified: isVerified,
-                isVerifying: isVerifying,
-              ),
-
-              // 7. Footer ("Didn't get a code? Resend in 0:17")
-              AnimatedSize(
-                duration: const Duration(milliseconds: 250),
-                child: isVerified
-                    ? const SizedBox.shrink()
-                    : Padding(
-                        padding: const EdgeInsets.only(top: 18),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text(
-                              "Didn't get a code? ",
-                              style: TextStyle(
-                                fontSize: 12.8,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFF94A3B8),
-                              ),
-                            ),
-                            if (_secondsRemaining > 0) ...[
-                              const Icon(
-                                Icons.sync_rounded,
-                                size: 13.5,
-                                color: Color(0xFF64748B),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Resend in 0:${_secondsRemaining.toString().padLeft(2, '0')}',
-                                style: const TextStyle(
-                                  fontSize: 12.8,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
-                            ] else
-                              GestureDetector(
-                                onTap: _handleResendCode,
-                                child: const Row(
-                                  children: [
-                                    Icon(
-                                      Icons.refresh_rounded,
-                                      size: 14,
-                                      color: Color(0xFF4F46E5),
-                                    ),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      'Resend code',
-                                      style: TextStyle(
-                                        fontSize: 12.8,
-                                        fontWeight: FontWeight.w800,
-                                        color: Color(0xFF4F46E5),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
+              // 5. Resend Timer Row ("Didn't receive the code? Resend in 00:37")
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    "Didn't receive the code? ",
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      color: _cargooMutedText,
+                    ),
+                  ),
+                  if (_secondsRemaining > 0)
+                    Text(
+                      'Resend in 00:${_secondsRemaining.toString().padLeft(2, '0')}',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                        color: isVerified ? _cargooGreen : _cargooBlue,
+                      ),
+                    )
+                  else
+                    GestureDetector(
+                      onTap: _handleResendCode,
+                      child: const Text(
+                        'Resend Now',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w900,
+                          color: _cargooBlue,
+                          decoration: TextDecoration.underline,
                         ),
                       ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 22),
+
+              // 6. Bottom Status / Action Button
+              _buildBottomActionButton(
+                isVerified: isVerified,
+                isWrong: isWrong,
+                isVerifying: isVerifying,
               ),
             ],
           ),
         ),
 
-        const SizedBox(height: 22),
+        const SizedBox(height: 18),
 
-        // 8. Bottom Helper ("Your OTP is 1234" - tap to auto-fill with slot animation!)
+        // 7. Quick Demo OTP Helper Pill
         GestureDetector(
-          onTap: _autoTypeDemoOtp,
+          onTap: _autoFillOtp,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.88),
+              color: Colors.white,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
+              border: Border.all(color: const Color(0xFFCAD4CC)),
             ),
             child: RichText(
               text: TextSpan(
                 style: const TextStyle(
                   fontFamily: 'Segoe UI Variable',
-                  fontSize: 13.5,
-                  color: Color(0xFF64748B),
-                  fontWeight: FontWeight.w500,
+                  fontSize: 13,
+                  color: _cargooMutedText,
+                  fontWeight: FontWeight.w600,
                 ),
                 children: [
-                  const TextSpan(text: 'Your OTP is '),
+                  const TextSpan(text: 'Active OTP Code: '),
                   TextSpan(
                     text: _expectedOtp,
                     style: const TextStyle(
                       fontWeight: FontWeight.w900,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: 1.2,
+                      color: _cargooDarkNavy,
+                      letterSpacing: 1.5,
                     ),
+                  ),
+                  const TextSpan(
+                    text: '  (Tap to auto-fill)',
+                    style: TextStyle(fontSize: 11.5, color: _cargooBlue),
                   ),
                 ],
               ),
@@ -836,318 +922,357 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     );
   }
 
-  Widget _buildTopAnimatedBadge({
+  /// Top 45-degree rotated rounded square Diamond Badge (just like the video!)
+  Widget _buildDiamondTopBadge({
     required bool isVerified,
-    required bool isError,
+    required bool isWrong,
   }) {
-    final isUnlockedPre = _state == _OtpV15State.unlockedPreCheck;
+    Color bg = _cargooSoftBlue;
+    Color border = _cargooBlue.withValues(alpha: 0.45);
+    Color iconColor = _cargooBlue;
+    IconData iconData = Icons.vpn_key_rounded;
+
+    if (isVerified) {
+      bg = const Color(0xFFDCFCE7);
+      border = _cargooGreen.withValues(alpha: 0.55);
+      iconColor = _cargooGreen;
+      iconData = Icons.verified_user_rounded;
+    } else if (isWrong) {
+      bg = const Color(0xFFFFE4E6);
+      border = _cargooRed.withValues(alpha: 0.55);
+      iconColor = _cargooRed;
+      iconData = Icons.gpp_bad_rounded;
+    }
 
     return SizedBox(
-      width: 76,
-      height: 76,
+      width: 68,
+      height: 68,
       child: Center(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 360),
-          switchInCurve: Curves.elasticOut,
-          switchOutCurve: Curves.easeIn,
-          transitionBuilder: (child, anim) {
-            return ScaleTransition(
-              scale: anim,
-              child: FadeTransition(opacity: anim, child: child),
-            );
-          },
-          child: isVerified
-              ? Container(
-                  key: const ValueKey('badge_verified'),
-                  width: 74,
-                  height: 74,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFFDCFCE7),
-                    border: Border.all(color: const Color(0xFFBBF7D0), width: 1.5),
-                  ),
-                  child: Center(
-                    child: Container(
-                      width: 54,
-                      height: 54,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0xFF22C55E),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Color(0x5522C55E),
-                            blurRadius: 14,
-                            offset: Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.check_rounded,
-                        color: Colors.white,
-                        size: 30,
-                      ),
-                    ),
-                  ),
-                )
-              : AnimatedContainer(
-                  key: ValueKey(isError
-                      ? 'badge_error'
-                      : (isUnlockedPre ? 'badge_unlocked' : 'badge_lock')),
-                  duration: const Duration(milliseconds: 240),
-                  width: 66,
-                  height: 66,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: isError ? const Color(0xFFFFE4E6) : const Color(0xFFEEF2FF),
-                    border: Border.all(
-                      color: isError ? const Color(0xFFFECDD3) : const Color(0xFFE0E7FF),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Icon(
-                    isUnlockedPre ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
-                    color: isError ? const Color(0xFFE11D48) : const Color(0xFF4F46E5),
-                    size: 27,
-                  ),
+        child: Transform.rotate(
+          angle: math.pi / 4, // 45° diamond
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: border, width: 1.6),
+              boxShadow: [
+                BoxShadow(
+                  color: iconColor.withValues(alpha: 0.18),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
                 ),
+              ],
+            ),
+            child: Transform.rotate(
+              angle: -math.pi / 4, // Keep icon upright inside diamond
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                transitionBuilder: (child, anim) =>
+                    ScaleTransition(scale: anim, child: child),
+                child: Icon(
+                  iconData,
+                  key: ValueKey(iconData.codePoint),
+                  color: iconColor,
+                  size: 25,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildDigitSlotBox(int index) {
+  /// Builds the 4-box horizontal row that morphs into a Diamond Cross,
+  /// orbits 360 degrees, and merges into a single center box!
+  Widget _buildOrbitStage() {
+    final t = _orbitController.value;
+
+    // If fully merged in the center (centerSpinning, verifiedSuccess, or wrongError before reverse)
+    if (_phase == _OrbitOtpPhase.centerSpinning ||
+        _phase == _OrbitOtpPhase.verifiedSuccess ||
+        (_phase == _OrbitOtpPhase.wrongError && t > 0.8)) {
+      return Center(child: _buildMergedCenterBox());
+    }
+
+    // Horizontal row positions (when t == 0.0)
+    const List<Offset> rowPositions = [
+      Offset(-99, 0),
+      Offset(-33, 0),
+      Offset(33, 0),
+      Offset(99, 0),
+    ];
+
+    // Diamond Cross angles:
+    // Box 0 -> Left (pi), Box 1 -> Top (-pi/2), Box 2 -> Bottom (pi/2), Box 3 -> Right (0)
+    const List<double> diamondBaseAngles = [
+      math.pi,
+      -math.pi / 2,
+      math.pi / 2,
+      0.0,
+    ];
+    const double diamondRadius = 54.0;
+
+    return Stack(
+      alignment: Alignment.center,
+      children: List.generate(4, (i) {
+        Offset pos;
+        double boxRotation = 0.0;
+        double scale = 1.0;
+        double opacity = 1.0;
+
+        if (t <= 0.25) {
+          // Stage 1 (0.0 -> 0.25): Smoothly move from Horizontal Row into Diamond Cross
+          final p = Curves.easeInOutCubic.transform(t / 0.25);
+          final targetX = math.cos(diamondBaseAngles[i]) * diamondRadius;
+          final targetY = math.sin(diamondBaseAngles[i]) * diamondRadius;
+          pos = Offset.lerp(rowPositions[i], Offset(targetX, targetY), p)!;
+        } else if (t <= 0.78) {
+          // Stage 2 (0.25 -> 0.78): 360-degree Orbital Spin around center!
+          final p = Curves.easeInOutSine.transform((t - 0.25) / 0.53);
+          final currentAngle = diamondBaseAngles[i] + (p * math.pi * 2.0);
+          pos = Offset(
+            math.cos(currentAngle) * diamondRadius,
+            math.sin(currentAngle) * diamondRadius,
+          );
+          boxRotation = p * math.pi * 2.0;
+        } else {
+          // Stage 3 (0.78 -> 1.0): Converge/Implode into Center (0, 0)
+          final p = Curves.easeInBack.transform(((t - 0.78) / 0.22).clamp(0.0, 1.0));
+          final radius = diamondRadius * (1.0 - p);
+          final currentAngle = diamondBaseAngles[i] + math.pi * 2.0;
+          pos = Offset(
+            math.cos(currentAngle) * radius,
+            math.sin(currentAngle) * radius,
+          );
+          scale = 1.0 - (p * 0.25);
+          opacity = (1.0 - (p * 0.65)).clamp(0.0, 1.0);
+        }
+
+        return Transform.translate(
+          offset: pos,
+          child: Transform.rotate(
+            angle: boxRotation,
+            child: Transform.scale(
+              scale: scale,
+              child: Opacity(
+                opacity: opacity,
+                child: _buildSingleDigitBox(i),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildSingleDigitBox(int index) {
     final digit = _digits[index];
     final hasDigit = digit.isNotEmpty;
-    final isVerified = _state == _OtpV15State.verified;
-    final isError = _state == _OtpV15State.error;
+    final isWrong = _phase == _OrbitOtpPhase.wrongError;
     final isFocused = _hiddenFocusNode.hasFocus &&
-        _state == _OtpV15State.idle &&
-        !_isDroppingOut &&
+        (_phase == _OrbitOtpPhase.typing || _phase == _OrbitOtpPhase.wrongError) &&
+        _orbitController.value == 0.0 &&
         _activeBoxIndex == index &&
         _enteredCount < 4;
 
-    Color bgColor = const Color(0xFFF8FAFC);
-    Color borderColor = const Color(0xFFE2E8F0);
-    Color textColor = const Color(0xFF0F172A);
-    Color dashColor = const Color(0xFFCBD5E1);
+    Color borderColor = const Color(0xFFCAD4CC);
+    Color bgColor = Colors.white;
+    Color textColor = _cargooDarkText;
     double borderWidth = 1.5;
 
-    if (isVerified) {
-      bgColor = const Color(0xFF22C55E);
-      borderColor = const Color(0xFF16A34A);
-      textColor = Colors.white;
-      dashColor = Colors.white.withValues(alpha: 0.45);
-      borderWidth = 1.8;
-    } else if (isError && hasDigit) {
+    if (isWrong) {
+      borderColor = _cargooRed;
       bgColor = const Color(0xFFFFF1F2);
-      borderColor = const Color(0xFFFB7185);
-      textColor = const Color(0xFFE11D48);
-      dashColor = const Color(0xFFFDA4AF);
-      borderWidth = 1.8;
-    } else if (isFocused) {
-      bgColor = Colors.white;
-      borderColor = const Color(0xFF4F46E5);
-      dashColor = const Color(0xFF4F46E5);
+      textColor = _cargooRed;
+      borderWidth = 2.0;
+    } else if (isFocused || _orbitController.value > 0.0) {
+      borderColor = _cargooBlue;
+      bgColor = _cargooSoftBlue.withValues(alpha: 0.55);
       borderWidth = 2.0;
     } else if (hasDigit) {
+      borderColor = _cargooBlue.withValues(alpha: 0.65);
       bgColor = Colors.white;
-      borderColor = const Color(0xFFCBD5E1);
-      dashColor = const Color(0xFF94A3B8);
-      borderWidth = 1.5;
+      borderWidth = 1.8;
     }
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 240),
-      curve: Curves.easeOutCubic,
-      width: 60,
-      height: 70,
+    return Container(
+      width: 54,
+      height: 56,
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: borderColor, width: borderWidth),
-        boxShadow: isVerified
-            ? [
-                BoxShadow(
-                  color: const Color(0xFF22C55E).withValues(alpha: 0.28),
-                  blurRadius: 12,
-                  offset: const Offset(0, 5),
-                ),
-              ]
-            : (isFocused
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFF4F46E5).withValues(alpha: 0.14),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3),
-                    ),
-                  ]
-                : null),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(13),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // Slot-Machine Vertical Roll Digit Transition
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 230),
-              switchInCurve: Curves.easeOutBack,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (child, animation) {
-                final isIncoming = child.key == ValueKey<String>('digit_${index}_$digit');
-                final offsetTween = isIncoming
-                    ? Tween<Offset>(begin: const Offset(0, -0.75), end: Offset.zero)
-                    : Tween<Offset>(begin: const Offset(0, 0.95), end: Offset.zero);
-                return FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(
-                    position: offsetTween.animate(animation),
-                    child: child,
-                  ),
-                );
-              },
-              child: hasDigit
-                  ? Padding(
-                      key: ValueKey<String>('digit_${index}_$digit'),
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        digit,
-                        style: TextStyle(
-                          fontFamily: 'Segoe UI Variable',
-                          fontSize: 24,
-                          fontWeight: FontWeight.w900,
-                          color: textColor,
-                        ),
-                      ),
-                    )
-                  : (isFocused && _showCursor
-                      ? Container(
-                          key: ValueKey<String>('cursor_$index'),
-                          width: 2,
-                          height: 24,
-                          margin: const EdgeInsets.only(bottom: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF4F46E5),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        )
-                      : SizedBox.shrink(key: ValueKey<String>('empty_$index'))),
+        boxShadow: [
+          if (isFocused || _orbitController.value > 0.0)
+            BoxShadow(
+              color: _cargooBlue.withValues(alpha: 0.20),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
-
-            // Bottom horizontal indicator bar inside each slot box
-            Positioned(
-              bottom: 7,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 220),
-                width: 18,
-                height: 2.5,
-                decoration: BoxDecoration(
-                  color: dashColor,
-                  borderRadius: BorderRadius.circular(2),
+        ],
+      ),
+      child: Center(
+        child: hasDigit
+            ? Text(
+                digit,
+                style: TextStyle(
+                  fontFamily: 'Segoe UI Variable',
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: textColor,
                 ),
-              ),
+              )
+            : (isFocused && _showCursor
+                ? Container(
+                    width: 2.2,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: _cargooBlue,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  )
+                : const SizedBox.shrink()),
+      ),
+    );
+  }
+
+  /// The single central square shown after the 4 boxes converge in the middle (00:02 - 00:03)
+  Widget _buildMergedCenterBox() {
+    final isVerified = _phase == _OrbitOtpPhase.verifiedSuccess;
+    final isWrong = _phase == _OrbitOtpPhase.wrongError;
+
+    Color borderColor = _cargooBlue;
+    Color bgColor = _cargooSoftBlue;
+    if (isVerified) {
+      borderColor = _cargooGreen;
+      bgColor = const Color(0xFFDCFCE7);
+    } else if (isWrong) {
+      borderColor = _cargooRed;
+      bgColor = const Color(0xFFFFE4E6);
+    }
+
+    final pulseScale = 1.0 + math.sin(_pulseController.value * math.pi) * 0.12;
+
+    return Transform.scale(
+      scale: pulseScale,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 260),
+        width: 64,
+        height: 64,
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor, width: 2.2),
+          boxShadow: [
+            BoxShadow(
+              color: borderColor.withValues(alpha: 0.28),
+              blurRadius: 20,
+              spreadRadius: 2,
             ),
           ],
+        ),
+        child: Center(
+          child: isVerified
+              ? const Icon(
+                  Icons.check_rounded,
+                  color: _cargooGreen,
+                  size: 34,
+                )
+              : (isWrong
+                  ? const Icon(
+                      Icons.close_rounded,
+                      color: _cargooRed,
+                      size: 34,
+                    )
+                  : const SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.6,
+                        color: _cargooBlue,
+                      ),
+                    )),
         ),
       ),
     );
   }
 
-  Widget _buildSweepActionButton({
+  Widget _buildBottomActionButton({
     required bool isVerified,
+    required bool isWrong,
     required bool isVerifying,
   }) {
     final isReady = _enteredCount == 4;
 
+    Color btnBg = _cargooBlue;
     if (isVerified) {
-      return SizedBox(
-        width: double.infinity,
-        height: 52,
-        child: ElevatedButton(
-          onPressed: widget.onVerifiedContinue,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF22C55E),
-            foregroundColor: Colors.white,
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'Continue',
-                style: TextStyle(
-                  fontFamily: 'Segoe UI Variable',
-                  fontSize: 15.5,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              SizedBox(width: 8),
-              Icon(Icons.arrow_forward_rounded, size: 18, color: Colors.white),
-            ],
-          ),
-        ),
-      );
+      btnBg = _cargooGreen;
+    } else if (isWrong) {
+      btnBg = _cargooRed;
+    } else if (!isReady && !isVerifying) {
+      btnBg = _cargooBlue.withValues(alpha: 0.55);
     }
 
     return GestureDetector(
-      onTap: isReady && !isVerifying ? _triggerVerify : null,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          width: double.infinity,
-          height: 52,
-          color: isVerifying
-              ? const Color(0xFF3730A3)
-              : (isReady ? const Color(0xFF4F46E5) : const Color(0xFF94A3B8)),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Left-to-Right Progress Sweep Bar during Verifying
-              if (isVerifying)
-                Positioned.fill(
-                  child: AnimatedBuilder(
-                    animation: _verifySweepController,
-                    builder: (context, _) {
-                      return FractionallySizedBox(
-                        alignment: Alignment.centerLeft,
-                        widthFactor: _verifySweepController.value,
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Color(0xFF4F46E5),
-                                Color(0xFF6366F1),
-                              ],
-                            ),
-                          ),
+      onTap: () {
+        if (isVerified) {
+          if (!_hasNavigated) {
+            _hasNavigated = true;
+            widget.onVerifiedContinue();
+          }
+        } else if (isReady && !isVerifying) {
+          _startOrbitVerification();
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 260),
+        width: double.infinity,
+        height: 52,
+        decoration: BoxDecoration(
+          color: btnBg,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: btnBg.withValues(alpha: 0.28),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Center(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            child: isVerified
+                ? const Row(
+                    key: ValueKey('btn_verified'),
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.check_circle_outline_rounded, color: Colors.white, size: 19),
+                      SizedBox(width: 8),
+                      Text(
+                        'Verified & Secured',
+                        style: TextStyle(
+                          fontFamily: 'Segoe UI Variable',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
                         ),
-                      );
-                    },
-                  ),
-                ),
-
-              // Button Label & Spinner
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: isVerifying
+                      ),
+                    ],
+                  )
+                : (isWrong
                     ? const Row(
-                        key: ValueKey('btn_verifying'),
+                        key: ValueKey('btn_wrong'),
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.2,
-                              color: Colors.white,
-                            ),
-                          ),
-                          SizedBox(width: 10),
+                          Icon(Icons.error_outline_rounded, color: Colors.white, size: 19),
+                          SizedBox(width: 8),
                           Text(
-                            'Verifying',
+                            'Wrong Code — Try Again',
                             style: TextStyle(
                               fontFamily: 'Segoe UI Variable',
                               fontSize: 15,
@@ -1157,18 +1282,48 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
                           ),
                         ],
                       )
-                    : const Text(
-                        'Verify code',
-                        key: ValueKey('btn_verify_code'),
-                        style: TextStyle(
-                          fontFamily: 'Segoe UI Variable',
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-              ),
-            ],
+                    : (isVerifying
+                        ? const Row(
+                            key: ValueKey('btn_verifying'),
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.2,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              SizedBox(width: 10),
+                              Text(
+                                'Verifying Code ...',
+                                style: TextStyle(
+                                  fontFamily: 'Segoe UI Variable',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          )
+                        : const Row(
+                            key: ValueKey('btn_proceed'),
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'Verify & Proceed',
+                                style: TextStyle(
+                                  fontFamily: 'Segoe UI Variable',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
+                            ],
+                          ))),
           ),
         ),
       ),

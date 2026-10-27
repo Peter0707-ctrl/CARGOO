@@ -7,6 +7,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class AuthController extends Controller
@@ -49,6 +50,7 @@ class AuthController extends Controller
         $user->save();
 
         Log::info("CARGOO OTP sent to {$formattedPhone}: {$otp}");
+        $this->dispatchRealSmsOtp($formattedPhone, $otp);
 
         $response = [
             'status' => 'success',
@@ -63,6 +65,63 @@ class AuthController extends Controller
         }
 
         return response()->json($response);
+    }
+
+    /**
+     * Dispatch real SMS via Tanzania SMS Gateways (Beem Africa / NextSMS)
+     * and push live Android OS notification when testing over USB.
+     */
+    private function dispatchRealSmsOtp(string $phone, string $otp): void
+    {
+        $message = "CARGOO: Your 4-digit verification code is {$otp}. Valid for 10 minutes. Do not share this code.";
+        $cleanPhone = ltrim($phone, '+');
+
+        // 1. Beem Africa SMS Gateway (Tanzania)
+        $beemKey = env('BEEM_API_KEY');
+        $beemSecret = env('BEEM_SECRET_KEY');
+        if (!empty($beemKey) && !empty($beemSecret)) {
+            try {
+                Http::withBasicAuth($beemKey, $beemSecret)
+                    ->timeout(4)
+                    ->post('https://apisms.beem.africa/v1/send', [
+                        'source_addr' => env('BEEM_SENDER_ID', 'CARGOO'),
+                        'schedule_time' => '',
+                        'encoding' => 0,
+                        'message' => $message,
+                        'recipients' => [
+                            ['recipient_id' => 1, 'dest_addr' => $cleanPhone],
+                        ],
+                    ]);
+            } catch (\Throwable $e) {
+                Log::warning("Beem SMS error: " . $e->getMessage());
+            }
+        }
+
+        // 2. NextSMS Gateway (Tanzania)
+        $nextSmsToken = env('NEXTSMS_TOKEN');
+        if (!empty($nextSmsToken)) {
+            try {
+                Http::withToken($nextSmsToken)
+                    ->timeout(4)
+                    ->post('https://messaging-service.co.tz/api/sms/v1/text/single', [
+                        'from' => env('NEXTSMS_SENDER_ID', 'CARGOO'),
+                        'to' => $cleanPhone,
+                        'text' => $message,
+                    ]);
+            } catch (\Throwable $e) {
+                Log::warning("NextSMS error: " . $e->getMessage());
+            }
+        }
+
+        // 3. Local USB Android OS Real Notification Delivery
+        if (app()->environment('local')) {
+            try {
+                $escapedMsg = addslashes($message);
+                @pclose(@popen("start /B adb shell \"cmd notification post -S bigtext -t 'CARGOO SMS' 'cargoo_otp' '{$escapedMsg}'\" >NUL 2>&1", "r"));
+            } catch (\Throwable $e) {
+                // Ignore if adb is not attached
+            }
+        }
     }
 
     /**
