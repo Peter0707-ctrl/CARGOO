@@ -68,36 +68,46 @@ class AuthController extends Controller
     }
 
     /**
-     * Dispatch real SMS via Tanzania SMS Gateways (Beem Africa / NextSMS)
+     * Dispatch real SMS via Africa's Talking SMS Gateway (and fallback carriers)
      * and push live Android OS notification when testing over USB.
      */
     private function dispatchRealSmsOtp(string $phone, string $otp): void
     {
-        $message = "CARGOO: Your 4-digit verification code is {$otp}. Valid for 10 minutes. Do not share this code.";
+        $message = "CARGOO: Namba yako ya uthibitisho (OTP) ni {$otp}. Inatumika kwa dakika 10. Usitoe namba hii kwa mtu yeyote.";
         $cleanPhone = ltrim($phone, '+');
 
-        // 1. Beem Africa SMS Gateway (Tanzania)
-        $beemKey = env('BEEM_API_KEY');
-        $beemSecret = env('BEEM_SECRET_KEY');
-        if (!empty($beemKey) && !empty($beemSecret)) {
+        // 1. Africa's Talking SMS Gateway
+        $atApiKey = env('AFRICASTALKING_API_KEY');
+        $atUsername = env('AFRICASTALKING_USERNAME', 'sandbox');
+        $atEnv = env('AFRICASTALKING_ENV', 'sandbox');
+
+        if (!empty($atApiKey)) {
             try {
-                Http::withBasicAuth($beemKey, $beemSecret)
-                    ->timeout(4)
-                    ->post('https://apisms.beem.africa/v1/send', [
-                        'source_addr' => env('BEEM_SENDER_ID', 'CARGOO'),
-                        'schedule_time' => '',
-                        'encoding' => 0,
-                        'message' => $message,
-                        'recipients' => [
-                            ['recipient_id' => 1, 'dest_addr' => $cleanPhone],
-                        ],
-                    ]);
+                $endpoint = ($atEnv === 'sandbox' || $atUsername === 'sandbox')
+                    ? 'https://api.sandbox.africastalking.com/version1/messaging'
+                    : 'https://api.africastalking.com/version1/messaging';
+
+                $payload = [
+                    'username' => $atUsername,
+                    'to' => $phone,
+                    'message' => $message,
+                ];
+
+                $response = Http::asForm()
+                    ->withHeaders([
+                        'apiKey' => $atApiKey,
+                        'Accept' => 'application/json',
+                    ])
+                    ->timeout(5)
+                    ->post($endpoint, $payload);
+
+                Log::info("Africa's Talking SMS dispatch status: " . $response->status() . " Body: " . $response->body());
             } catch (\Throwable $e) {
-                Log::warning("Beem SMS error: " . $e->getMessage());
+                Log::warning("Africa's Talking SMS error: " . $e->getMessage());
             }
         }
 
-        // 2. NextSMS Gateway (Tanzania)
+        // 2. NextSMS Gateway (Tanzania fallback)
         $nextSmsToken = env('NEXTSMS_TOKEN');
         if (!empty($nextSmsToken)) {
             try {

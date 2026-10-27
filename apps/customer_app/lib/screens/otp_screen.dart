@@ -236,7 +236,6 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
   Timer? _cursorTimer;
   bool _showCursor = true;
   bool _hasNavigated = false;
-  OverlayEntry? _smsOverlayEntry;
 
   // Controls the 0.0 -> 1.0 choreography:
   // 0.00 -> 0.25: Row morphs into 4-point Diamond Cross (Top, Left, Right, Bottom)
@@ -278,16 +277,12 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _hiddenFocusNode.requestFocus();
-        Future.delayed(const Duration(milliseconds: 700), () {
-          if (mounted) _showIncomingSmsBanner();
-        });
       }
     });
   }
 
   @override
   void dispose() {
-    _removeSmsBanner();
     _resendTimer?.cancel();
     _cursorTimer?.cancel();
     _orbitController.dispose();
@@ -296,136 +291,6 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     _hiddenController.dispose();
     _hiddenFocusNode.dispose();
     super.dispose();
-  }
-
-  void _removeSmsBanner() {
-    _smsOverlayEntry?.remove();
-    _smsOverlayEntry = null;
-  }
-
-  void _showIncomingSmsBanner() {
-    if (!mounted || _phase == _OrbitOtpPhase.verifiedSuccess) return;
-    _removeSmsBanner();
-    HapticFeedback.heavyImpact();
-
-    final overlay = Overlay.maybeOf(context);
-    if (overlay == null) return;
-
-    _smsOverlayEntry = OverlayEntry(
-      builder: (ctx) {
-        return Positioned(
-          top: MediaQuery.of(ctx).padding.top + 10,
-          left: 14,
-          right: 14,
-          child: Material(
-            color: Colors.transparent,
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: -90.0, end: 0.0),
-              duration: const Duration(milliseconds: 380),
-              curve: Curves.easeOutBack,
-              builder: (context, dy, child) => Transform.translate(
-                offset: Offset(0, dy),
-                child: child,
-              ),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: _cargooDarkText,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: _cargooBlue.withValues(alpha: 0.5)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.25),
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: _cargooBlue,
-                        borderRadius: BorderRadius.circular(11),
-                      ),
-                      child: const Icon(Icons.sms_rounded, color: Colors.white, size: 20),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              const Text(
-                                'CARGOO SMS',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '• now',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.6),
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Your security OTP code is $_expectedOtp',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton(
-                      onPressed: () {
-                        _removeSmsBanner();
-                        _autoFillOtp();
-                      },
-                      style: TextButton.styleFrom(
-                        backgroundColor: _cargooBlue,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                        minimumSize: Size.zero,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: Text(
-                        'Use $_expectedOtp',
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-
-    overlay.insert(_smsOverlayEntry!);
-    Future.delayed(const Duration(seconds: 7), () {
-      if (mounted) _removeSmsBanner();
-    });
   }
 
   void _startResendTimer() {
@@ -517,7 +382,6 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     final code = _digits.join();
     if (code.length < 4 || _phase != _OrbitOtpPhase.typing) return;
 
-    _removeSmsBanner();
     FocusScope.of(context).unfocus();
 
     setState(() {
@@ -605,7 +469,6 @@ class _OtpVerificationCardV15State extends State<OtpVerificationCardV15>
     });
     _startResendTimer();
     _hiddenFocusNode.requestFocus();
-    _showIncomingSmsBanner();
   }
 
   @override
