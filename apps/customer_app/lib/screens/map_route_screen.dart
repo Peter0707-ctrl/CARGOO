@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import '../services/api_service.dart';
 import '../services/session_manager.dart';
 import 'main_navigation_screen.dart';
@@ -123,6 +124,184 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
   String _recipientName = '';
   String _recipientPhone = '';
   String _cargoNotes = '';
+
+
+  Future<void> _callDriver(String phone) async {
+    final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('tel:$clean');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Dialing $clean on phone...'),
+          backgroundColor: const Color(0xFF4B7B9F),
+        ),
+      );
+    }
+  }
+
+  void _showDriverChatAndNotesModal() {
+    final textCtrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 18,
+                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Color(0xFFE5EEF5),
+                            ),
+                            child: const Center(
+                              child: Text('A', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF4B7B9F), fontSize: 18)),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Ally Mussa', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Color(0xFF1E2822))),
+                              SizedBox(height: 2),
+                              Row(
+                                children: [
+                                  CircleAvatar(radius: 3.5, backgroundColor: Color(0xFF16A34A)),
+                                  SizedBox(width: 5),
+                                  Text('Online • T 489 DXA (Kirikuu)', style: TextStyle(fontSize: 11.5, color: Color(0xFF6B7E74), fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, color: Color(0xFF6B7E74)),
+                        onPressed: () => Navigator.pop(modalCtx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF2F5F1),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Pickup Notes & Quick Instructions:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF1E2822))),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            'Nipo getini nasubiri',
+                            'Piga simu ukifika hapa',
+                            'Mzigo uko ground floor',
+                            'Mzigo wa kioo, kuwa makini',
+                          ].map((chip) => GestureDetector(
+                            onTap: () {
+                              textCtrl.text = chip;
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: const Color(0xFFCAD4CC)),
+                              ),
+                              child: Text(chip, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF2C4A63))),
+                            ),
+                          )).toList(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFCAD4CC)),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          child: TextField(
+                            controller: textCtrl,
+                            decoration: const InputDecoration(
+                              hintText: 'Andika ujumbe au maelekezo ya geti...',
+                              border: InputBorder.none,
+                              hintStyle: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton(
+                        onPressed: () {
+                          if (textCtrl.text.trim().isNotEmpty) {
+                            setState(() {
+                              _cargoNotes = textCtrl.text.trim();
+                            });
+                            Navigator.pop(modalCtx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Ujumbe umetumwa kwa dereva: "${textCtrl.text.trim()}"'),
+                                backgroundColor: const Color(0xFF4B7B9F),
+                              ),
+                            );
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4B7B9F),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          elevation: 0,
+                        ),
+                        child: const Icon(Icons.send_rounded, size: 18),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   void _openChangeRoute() {
     Navigator.push(
@@ -1718,14 +1897,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                   children: [
                     Expanded(
                       child: InkWell(
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Pickup notes sent to driver.'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
+                        onTap: _showDriverChatAndNotesModal,
                         borderRadius: BorderRadius.circular(20),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1733,17 +1905,21 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                             color: const Color(0xFFF2F5F1),
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: const Row(
+                          child: Row(
                             children: [
-                              Icon(Icons.chat_bubble_outline_rounded, size: 16, color: Color(0xFF1E2822)),
-                              SizedBox(width: 8),
-                              Text(
-                                'Any pickup notes?',
-                                style: TextStyle(
-                                  fontFamily: 'Segoe UI Variable',
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF1E2822),
+                              const Icon(Icons.chat_bubble_outline_rounded, size: 16, color: Color(0xFF1E2822)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _cargoNotes.isNotEmpty ? 'Note: $_cargoNotes' : 'Any pickup notes?',
+                                  style: const TextStyle(
+                                    fontFamily: 'Segoe UI Variable',
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF1E2822),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ],
@@ -1756,19 +1932,12 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                       width: 44,
                       height: 44,
                       decoration: const BoxDecoration(
-                        color: Color(0xFFF2F5F1),
+                        color: Color(0xFFE5EEF5),
                         shape: BoxShape.circle,
                       ),
                       child: IconButton(
-                        icon: const Icon(Icons.phone_rounded, size: 18, color: Color(0xFF1E2822)),
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Calling driver Ally Mussa (0714 882 109)...'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
+                        icon: const Icon(Icons.phone_rounded, size: 18, color: Color(0xFF4B7B9F)),
+                        onPressed: () => _callDriver('+255714882109'),
                       ),
                     ),
                   ],
