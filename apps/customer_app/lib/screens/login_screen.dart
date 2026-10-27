@@ -33,7 +33,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final cleanDigits = rawInput.replaceAll(RegExp(r'[^0-9]'), '');
     if (cleanDigits.length < 9) {
       setState(() {
-        _errorMessage = 'Phone number must have at least 9 digits (e.g. 712345678)';
+        _errorMessage = 'Phone number must have at least 9 digits (e.g. 0673190931)';
       });
       return;
     }
@@ -43,11 +43,9 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final fullPhone = cleanDigits.startsWith('255')
-        ? '+$cleanDigits'
-        : (cleanDigits.startsWith('0')
-            ? '+255${cleanDigits.substring(1)}'
-            : '+255$cleanDigits');
+    // Strictly normalize any format (0673..., 255673..., +255673..., 673...) into +255XXXXXXXXX
+    final last9 = cleanDigits.substring(cleanDigits.length - 9);
+    final fullPhone = '+255$last9';
 
     final result = await ApiService.requestOtp(fullPhone);
 
@@ -200,7 +198,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         autofocus: true,
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
-                          LengthLimitingTextInputFormatter(10),
+                          LengthLimitingTextInputFormatter(13),
                         ],
                         style: const TextStyle(
                           fontFamily: 'Segoe UI Variable',
@@ -210,7 +208,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           letterSpacing: 1.2,
                         ),
                         decoration: const InputDecoration(
-                          hintText: '712 345 678',
+                          hintText: '0673 190 931',
                           hintStyle: TextStyle(
                             color: Color(0xFFA0AEC0),
                             fontWeight: FontWeight.w500,

@@ -13,6 +13,20 @@ use Illuminate\Support\Facades\Log;
 class AuthController extends Controller
 {
     /**
+     * Strictly normalize any Tanzania phone variation into standard E.164: +255XXXXXXXXX
+     * Handles 06..., 07..., 255..., +255..., 2550... flawlessly.
+     */
+    public static function normalizeTanzaniaPhone(string $input): string
+    {
+        $digits = preg_replace('/[^0-9]/', '', $input);
+        if (strlen($digits) >= 9) {
+            $last9 = substr($digits, -9);
+            return '+255' . $last9;
+        }
+        return '+255' . $digits;
+    }
+
+    /**
      * Request OTP for login or registration.
      */
     public function requestOtp(Request $request): JsonResponse
@@ -21,16 +35,7 @@ class AuthController extends Controller
             'phone' => 'required|string',
         ]);
 
-        $rawPhone = preg_replace('/[^0-9]/', '', $validated['phone']);
-
-        // Normalize Tanzania phone numbers
-        if (str_starts_with($rawPhone, '255')) {
-            $formattedPhone = '+' . $rawPhone;
-        } elseif (str_starts_with($rawPhone, '0')) {
-            $formattedPhone = '+255' . substr($rawPhone, 1);
-        } else {
-            $formattedPhone = '+255' . $rawPhone;
-        }
+        $formattedPhone = self::normalizeTanzaniaPhone($validated['phone']);
 
         // Generate cryptographically secure 4-digit OTP
         $otp = (string) random_int(1000, 9999);
@@ -139,14 +144,7 @@ class AuthController extends Controller
             'otp_code' => 'required|string|min:4|max:6',
         ]);
 
-        $rawPhone = preg_replace('/[^0-9]/', '', $validated['phone']);
-        if (str_starts_with($rawPhone, '255')) {
-            $formattedPhone = '+' . $rawPhone;
-        } elseif (str_starts_with($rawPhone, '0')) {
-            $formattedPhone = '+255' . substr($rawPhone, 1);
-        } else {
-            $formattedPhone = '+255' . $rawPhone;
-        }
+        $formattedPhone = self::normalizeTanzaniaPhone($validated['phone']);
 
         $user = User::where('phone', $formattedPhone)->first();
 
@@ -254,14 +252,7 @@ class AuthController extends Controller
 
         $user = $request->user();
         if (!$user && !empty($validated['phone'])) {
-            $rawPhone = preg_replace('/[^0-9]/', '', $validated['phone']);
-            if (str_starts_with($rawPhone, '255')) {
-                $formattedPhone = '+' . $rawPhone;
-            } elseif (str_starts_with($rawPhone, '0')) {
-                $formattedPhone = '+255' . substr($rawPhone, 1);
-            } else {
-                $formattedPhone = '+255' . $rawPhone;
-            }
+            $formattedPhone = self::normalizeTanzaniaPhone($validated['phone']);
             $user = User::where('phone', $formattedPhone)->first();
         }
 
