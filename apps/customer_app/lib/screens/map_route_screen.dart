@@ -43,6 +43,20 @@ class MapRouteScreen extends StatefulWidget {
   State<MapRouteScreen> createState() => _MapRouteScreenState();
 }
 
+class _CargoChatMessage {
+  final String id;
+  final String text;
+  final bool isMe;
+  final String time;
+
+  _CargoChatMessage({
+    required this.id,
+    required this.text,
+    required this.isMe,
+    required this.time,
+  });
+}
+
 class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStateMixin {
   late final MapController _mapController;
   late final DraggableScrollableController _sheetController;
@@ -52,6 +66,20 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
   BookingStage _bookingStage = BookingStage.vehicleSelection;
   Map<String, dynamic>? _assignedTrip;
   Timer? _driverWaitTimer;
+
+  // Real Interactive Chat Thread with Driver
+  final List<_CargoChatMessage> _chatMessages = [];
+  bool _isDriverTyping = false;
+
+  // Real-Time Vehicle Motion Simulation on Road Polyline
+  int _driverRouteIndex = 0;
+  LatLng? _driverMarkerPosition;
+  double _driverBearing = 0.0;
+  Timer? _driverMotionTimer;
+  String _cargoTransitState = 'Driver Arriving for Pickup';
+  int _remainingDurationMin = 12;
+  double _remainingDistanceKm = 8.5;
+  bool _isCargoLoaded = false;
 
   String _currentPickupName = '';
   late LatLng _currentPickupLatLng;
@@ -154,160 +182,396 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
 
   void _showDriverChatAndNotesModal() {
     final textCtrl = TextEditingController();
+    final scrollCtrl = ScrollController();
     final trip = _assignedTrip ?? {};
     final driverName = trip['driverName']?.toString() ?? 'Assigned Driver';
     final plateNumber = trip['plateNumber']?.toString() ?? '';
     final driverVehicle = trip['driverVehicle']?.toString() ?? trip['vehicle']?.toString() ?? 'Cargo';
+    final driverPhone = trip['driverPhone']?.toString() ?? trip['driver_phone']?.toString() ?? '';
     final initial = driverName.isNotEmpty ? driverName[0].toUpperCase() : 'D';
+
+    // Seed realistic initial messages if thread is empty
+    if (_chatMessages.isEmpty) {
+      final now = DateTime.now();
+      final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      _chatMessages.addAll([
+        _CargoChatMessage(
+          id: 'init_1',
+          text: 'Habari! Mimi ni $driverName dereva wako. Nimepokea safari ya kusafirisha mzigo wako kuelekea $_currentDropoffName.',
+          isMe: false,
+          time: timeStr,
+        ),
+        _CargoChatMessage(
+          id: 'init_2',
+          text: 'Nipo njiani kuelekea $_currentPickupName ($driverVehicle, $plateNumber). Tafadhali andaa mzigo getini au toa maelekezo ya ulinzi.',
+          isMe: false,
+          time: timeStr,
+        ),
+      ]);
+    }
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
       ),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (modalCtx, setModalState) {
-            return Padding(
+            void sendMessage(String text) {
+              final trimmed = text.trim();
+              if (trimmed.isEmpty) return;
+
+              final now = DateTime.now();
+              final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
+              final userMsg = _CargoChatMessage(
+                id: 'usr_${DateTime.now().millisecondsSinceEpoch}',
+                text: trimmed,
+                isMe: true,
+                time: timeStr,
+              );
+
+              setModalState(() {
+                _chatMessages.add(userMsg);
+                _cargoNotes = trimmed;
+              });
+              setState(() {
+                _cargoNotes = trimmed;
+              });
+
+              textCtrl.clear();
+
+              // Auto-scroll to bottom
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (scrollCtrl.hasClients) {
+                  scrollCtrl.animateTo(
+                    scrollCtrl.position.maxScrollExtent + 80,
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeOut,
+                  );
+                }
+              });
+
+              // Realistic responsive driver reply
+              Future.delayed(const Duration(milliseconds: 900), () {
+                if (!modalCtx.mounted) return;
+                setModalState(() {
+                  _isDriverTyping = true;
+                });
+              });
+
+              Future.delayed(const Duration(milliseconds: 2200), () {
+                if (!modalCtx.mounted) return;
+
+                String driverReply;
+                final lower = trimmed.toLowerCase();
+                if (lower.contains('wapi') || lower.contains('umbali') || lower.contains('dakika') || lower.contains('lini') || lower.contains('njiani')) {
+                  driverReply = 'Nipo karibu sana boss, ninaingia hapo baada ya dakika ${_remainingDurationMin > 0 ? _remainingDurationMin : 2} tu.';
+                } else if (lower.contains('geti') || lower.contains('hapa') || lower.contains('nasubiri') || lower.contains('nje')) {
+                  driverReply = 'Sawa nimekupata vizuri, nimeshaona eneo la geti. Nikifika hapo napiga simu mara moja.';
+                } else if (lower.contains('kioo') || lower.contains('tahadhari') || lower.contains('haribika') || lower.contains('ground') || lower.contains('mzigo')) {
+                  driverReply = 'Sawa usijali boss, nina kamba imara na blanketi za kufungia mzigo salama, gari halitatikisa.';
+                } else if (lower.contains('asante') || lower.contains('shukrani') || lower.contains('sawa') || lower.contains('poa')) {
+                  driverReply = 'Tuko pamoja sana boss, mzigo wako upo mikono salama!';
+                } else {
+                  driverReply = 'Sawa nimeelewa maelekezo yako boss, nafanya hivyo mara moja.';
+                }
+
+                final replyTime = DateTime.now();
+                final replyTimeStr = '${replyTime.hour.toString().padLeft(2, '0')}:${replyTime.minute.toString().padLeft(2, '0')}';
+
+                setModalState(() {
+                  _isDriverTyping = false;
+                  _chatMessages.add(_CargoChatMessage(
+                    id: 'drv_${DateTime.now().millisecondsSinceEpoch}',
+                    text: driverReply,
+                    isMe: false,
+                    time: replyTimeStr,
+                  ));
+                });
+
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (scrollCtrl.hasClients) {
+                    scrollCtrl.animateTo(
+                      scrollCtrl.position.maxScrollExtent + 80,
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeOut,
+                    );
+                  }
+                });
+              });
+            }
+
+            return Container(
+              height: MediaQuery.of(modalCtx).size.height * 0.82,
               padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 18,
-                bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 20,
+                bottom: MediaQuery.of(modalCtx).viewInsets.bottom,
               ),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Color(0xFFE5EEF5),
+                  // Modal Top Bar Handle
+                  Container(
+                    width: 44,
+                    height: 5,
+                    margin: const EdgeInsets.only(top: 10, bottom: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCAD4CC),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+
+                  // Chat Header
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    decoration: const BoxDecoration(
+                      border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                    ),
+                    child: Row(
+                      children: [
+                        Stack(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Color(0xFFE5EEF5),
+                              ),
+                              child: Center(
+                                child: Text(initial, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF4B7B9F), fontSize: 18)),
+                              ),
                             ),
-                            child: Center(
-                              child: Text(initial, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF4B7B9F), fontSize: 18)),
+                            Positioned(
+                              bottom: 0,
+                              right: 0,
+                              child: Container(
+                                width: 12,
+                                height: 12,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF16A34A),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 2),
+                                ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Column(
+                          ],
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(driverName, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Color(0xFF1E2822))),
-                              const SizedBox(height: 2),
-                              Row(
-                                children: [
-                                  const CircleAvatar(radius: 3.5, backgroundColor: Color(0xFF16A34A)),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    plateNumber.isNotEmpty ? 'Online • $plateNumber ($driverVehicle)' : 'Online • $driverVehicle',
-                                    style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B7E74), fontWeight: FontWeight.w600),
-                                  ),
-                                ],
+                              const SizedBox(height: 1),
+                              Text(
+                                plateNumber.isNotEmpty ? '$plateNumber · $driverVehicle' : driverVehicle,
+                                style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B7E74), fontWeight: FontWeight.w600),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
-                        ],
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close_rounded, color: Color(0xFF6B7E74)),
-                        onPressed: () => Navigator.pop(modalCtx),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF2F5F1),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Pickup Notes & Quick Instructions:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF1E2822))),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            'Nipo getini nasubiri',
-                            'Piga simu ukifika hapa',
-                            'Mzigo uko ground floor',
-                            'Mzigo wa kioo, kuwa makini',
-                          ].map((chip) => GestureDetector(
-                            onTap: () {
-                              textCtrl.text = chip;
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: const Color(0xFFCAD4CC)),
-                              ),
-                              child: Text(chip, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF2C4A63))),
-                            ),
-                          )).toList(),
+                        ),
+                        // Quick Phone Call inside Chat Header
+                        IconButton(
+                          icon: const Icon(Icons.phone_rounded, color: Color(0xFF4B7B9F)),
+                          tooltip: 'Call Driver',
+                          onPressed: () => _callDriver(driverPhone),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Color(0xFF6B7E74)),
+                          onPressed: () => Navigator.pop(modalCtx),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8FAFC),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFCAD4CC)),
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          child: TextField(
-                            controller: textCtrl,
-                            decoration: const InputDecoration(
-                              hintText: 'Andika ujumbe au maelekezo ya geti...',
-                              border: InputBorder.none,
-                              hintStyle: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+
+                  // Chat Messages List
+                  Expanded(
+                    child: ListView.builder(
+                      controller: scrollCtrl,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      itemCount: _chatMessages.length + (_isDriverTyping ? 1 : 0),
+                      itemBuilder: (ctx, idx) {
+                        if (idx == _chatMessages.length && _isDriverTyping) {
+                          return Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '$driverName anachapa ujumbe...',
+                                    style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF64748B)),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(strokeWidth: 1.5, color: Color(0xFF4B7B9F)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+
+                        final msg = _chatMessages[idx];
+                        if (msg.isMe) {
+                          // Outgoing Customer Message (Right)
+                          return Align(
+                            alignment: Alignment.centerRight,
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              constraints: BoxConstraints(maxWidth: MediaQuery.of(ctx).size.width * 0.76),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF1E2822),
+                                borderRadius: BorderRadius.only(
+                                  topLeft: Radius.circular(16),
+                                  topRight: Radius.circular(16),
+                                  bottomLeft: Radius.circular(16),
+                                  bottomRight: Radius.circular(4),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    msg.text,
+                                    style: const TextStyle(color: Colors.white, fontSize: 13.5, height: 1.3),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        msg.time,
+                                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Icon(Icons.done_all_rounded, size: 13, color: Color(0xFF38BDF8)),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        } else {
+                          // Incoming Driver Message (Left)
+                          return Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              constraints: BoxConstraints(maxWidth: MediaQuery.of(ctx).size.width * 0.78),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: const BorderRadius.only(
+                                  topLeft: Radius.circular(16),
+                                  topRight: Radius.circular(16),
+                                  bottomRight: Radius.circular(16),
+                                  bottomLeft: Radius.circular(4),
+                                ),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    msg.text,
+                                    style: const TextStyle(color: Color(0xFF1E293B), fontSize: 13.5, height: 1.3),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    msg.time,
+                                    style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+
+                  // Quick Suggestion Chips
+                  Container(
+                    height: 42,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        'Nipo getini nasubiri',
+                        'Piga simu ukifika hapa',
+                        'Mzigo uko ground floor',
+                        'Mzigo wa kioo, kuwa makini',
+                        'Uko umbali gani sasa?',
+                      ].map((chip) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ActionChip(
+                          label: Text(chip, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF1E2822))),
+                          backgroundColor: const Color(0xFFF8FAFC),
+                          side: const BorderSide(color: Color(0xFFCAD4CC)),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          onPressed: () => sendMessage(chip),
+                        ),
+                      )).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+
+                  // Text Input Bar
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: const BoxDecoration(
+                      border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(22),
+                              border: Border.all(color: const Color(0xFFCAD4CC)),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: TextField(
+                              controller: textCtrl,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (val) => sendMessage(val),
+                              decoration: const InputDecoration(
+                                hintText: 'Andika ujumbe kwa dereva...',
+                                border: InputBorder.none,
+                                hintStyle: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      ElevatedButton(
-                        onPressed: () {
-                          if (textCtrl.text.trim().isNotEmpty) {
-                            setState(() {
-                              _cargoNotes = textCtrl.text.trim();
-                            });
-                            Navigator.pop(modalCtx);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Ujumbe umetumwa kwa dereva: "${textCtrl.text.trim()}"'),
-                                backgroundColor: const Color(0xFF4B7B9F),
-                              ),
-                            );
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF4B7B9F),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          elevation: 0,
+                        const SizedBox(width: 8),
+                        Container(
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF4B7B9F),
+                            shape: BoxShape.circle,
+                          ),
+                          child: IconButton(
+                            icon: const Icon(Icons.send_rounded, size: 18, color: Colors.white),
+                            onPressed: () => sendMessage(textCtrl.text),
+                          ),
                         ),
-                        child: const Icon(Icons.send_rounded, size: 18),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -316,6 +580,68 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
         );
       },
     );
+  }
+
+  // ==================== LIVE DRIVER MOTION SIMULATION ON ROAD POLYLINE ====================
+  void _startDriverMotionSimulation() {
+    _driverMotionTimer?.cancel();
+    if (_routePoints.isEmpty) return;
+
+    _driverRouteIndex = 0;
+    _driverMarkerPosition = _routePoints.first;
+    _remainingDistanceKm = _distanceKm;
+    _remainingDurationMin = _durationMinutes;
+    _isCargoLoaded = false;
+    _cargoTransitState = 'Driver Arriving for Pickup';
+
+    _driverMotionTimer = Timer.periodic(const Duration(milliseconds: 1400), (timer) {
+      if (!mounted || _bookingStage != BookingStage.driverAccepted) {
+        timer.cancel();
+        return;
+      }
+
+      if (_driverRouteIndex < _routePoints.length - 1) {
+        final step = math.max(1, (_routePoints.length / 45).ceil());
+        final nextIdx = math.min(_routePoints.length - 1, _driverRouteIndex + step);
+        final currentPt = _routePoints[_driverRouteIndex];
+        final nextPt = _routePoints[nextIdx];
+
+        // Compute street bearing
+        final lat1 = currentPt.latitude * math.pi / 180.0;
+        final lon1 = currentPt.longitude * math.pi / 180.0;
+        final lat2 = nextPt.latitude * math.pi / 180.0;
+        final lon2 = nextPt.longitude * math.pi / 180.0;
+        final dLon = lon2 - lon1;
+        final y = math.sin(dLon) * math.cos(lat2);
+        final x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+        final bearingRad = math.atan2(y, x);
+        final bearingDeg = (bearingRad * 180.0 / math.pi + 360.0) % 360.0;
+
+        final fraction = nextIdx / _routePoints.length;
+        final newDist = math.max(0.1, _distanceKm * (1.0 - fraction));
+        final newDuration = math.max(1, (_durationMinutes * (1.0 - fraction)).round());
+
+        setState(() {
+          _driverRouteIndex = nextIdx;
+          _driverMarkerPosition = nextPt;
+          _driverBearing = bearingDeg;
+          _remainingDistanceKm = newDist;
+          _remainingDurationMin = newDuration;
+
+          if (_driverRouteIndex >= (_routePoints.length * 0.12).floor() && !_isCargoLoaded) {
+            _isCargoLoaded = true;
+            _cargoTransitState = 'Cargo Loaded • In Transit';
+          }
+        });
+      } else {
+        setState(() {
+          _cargoTransitState = 'Arrived at Destination';
+          _remainingDistanceKm = 0.0;
+          _remainingDurationMin = 0;
+        });
+        timer.cancel();
+      }
+    });
   }
 
   void _openChangeRoute() {
@@ -1064,7 +1390,12 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
               _isLoadingRoute = false;
               _recomputeFares();
             });
-            WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _fitRouteBounds();
+              if (_bookingStage == BookingStage.driverAccepted) {
+                _startDriverMotionSimulation();
+              }
+            });
             return;
           }
         }
@@ -1202,6 +1533,8 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
     final driverVehicle = '${vehicleColors[tripId.hashCode.abs() % vehicleColors.length]} · $vehicleName';
     final driverPhone = '+255 7${(10 + (tripId.hashCode.abs() % 89))} ${(100 + (tripId.hashCode.abs() % 899))} ${(100 + ((tripId.hashCode.abs() ~/ 10) % 899))}';
 
+    final bool isScheduled = widget.scheduledFor != null && widget.scheduledFor!.trim().isNotEmpty;
+
     final bookedTrip = {
       'id': tripId,
       'customerName': customerName,
@@ -1222,16 +1555,16 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
       'distanceKm': _distanceKm.toStringAsFixed(1),
       'durationMinutes': _durationMinutes,
       'paymentMethod': _paymentMethod,
-      'isScheduled': widget.scheduledFor != null,
+      'isScheduled': isScheduled,
       'scheduledFor': widget.scheduledFor ?? '',
       'sender': _isOrderingForSomeoneElse && _senderName != 'Myself' ? _senderName : customerName,
       'senderPhone': _isOrderingForSomeoneElse && _senderPhone.isNotEmpty ? _senderPhone : customerPhone,
       'recipient': _recipientName.isNotEmpty ? _recipientName : customerName,
       'recipientPhone': _recipientPhone.isNotEmpty ? _recipientPhone : customerPhone,
       'notes': _cargoNotes,
-      'is_active': true,
+      'is_active': !isScheduled,
       'vehicleIndex': _selectedVehicleIndex ?? 0,
-      'status': widget.scheduledFor != null ? 'Scheduled' : 'Driver Dispatched',
+      'status': isScheduled ? 'Scheduled' : 'Driver Dispatched',
       'driverName': driverName,
       'driverPhone': driverPhone,
       'plateNumber': plateNumber,
@@ -1239,7 +1572,10 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
     };
 
     await SessionManager.saveBookedTrip(bookedTrip);
-    await SessionManager.saveActiveTrip(bookedTrip);
+
+    if (!isScheduled) {
+      await SessionManager.saveActiveTrip(bookedTrip);
+    }
 
     try {
       final orderPayload = {
@@ -1266,12 +1602,12 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
         'duration_minutes': _durationMinutes,
         'cargo_notes': _cargoNotes,
         'payment_method': _paymentMethod,
-        'is_scheduled': widget.scheduledFor != null,
+        'is_scheduled': isScheduled,
         'scheduled_for': widget.scheduledFor ?? '',
         'driver_name': driverName,
         'driver_phone': driverPhone,
         'driver_plate': plateNumber,
-        'status': widget.scheduledFor != null ? 'Scheduled' : 'Driver Dispatched',
+        'status': isScheduled ? 'Scheduled' : 'Driver Dispatched',
       };
 
       await http.post(
@@ -1285,6 +1621,86 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
 
     if (!mounted) return;
 
+    // For Scheduled / Later trips: DO NOT search for driver now! Show reserved confirmation and return to Dashboard
+    if (isScheduled) {
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          title: const Row(
+            children: [
+              Icon(Icons.event_available_rounded, color: Color(0xFF4F46E5), size: 28),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Cargo Shipment Scheduled',
+                  style: TextStyle(fontFamily: 'Segoe UI Variable', fontWeight: FontWeight.w900, fontSize: 17),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Reserved for: ${widget.scheduledFor}',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: Color(0xFF1E2822)),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Vehicle: ${selectedVehicle['name']}\nQuoted Fare: ${selectedVehicle['price']}\nRoute: $_currentPickupName -> $_currentDropoffName',
+                style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B), height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEEF2FF),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFC7D2FE)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.notifications_active_outlined, color: Color(0xFF4338CA), size: 18),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'No driver will be dispatched right now. You can tap "Dispatch Driver Now" from your Dashboard at any time or cancel without fee.',
+                        style: TextStyle(fontSize: 11, color: Color(0xFF3730A3), fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const MainNavigationScreen(initialTabIndex: 0)),
+                  (route) => false,
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E2822),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Go to Dashboard', style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // For Immediate Dispatches: Transition to waiting stage
     setState(() {
       _assignedTrip = bookedTrip;
       _bookingStage = BookingStage.waitingForDriver;
@@ -1305,6 +1721,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
         setState(() {
           _bookingStage = BookingStage.driverAccepted;
         });
+        _startDriverMotionSimulation();
         WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
         try {
           _sheetController.animateTo(
@@ -2168,22 +2585,65 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Pickup in',
-                            style: TextStyle(
-                              fontFamily: 'Segoe UI Variable',
-                              fontSize: 12.5,
-                              color: Color(0xFF6B7E74),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: _isCargoLoaded ? const Color(0xFFDCFCE7) : const Color(0xFFEEF2FF),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: _isCargoLoaded ? const Color(0xFF86EFAC) : const Color(0xFFC7D2FE),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: _isCargoLoaded ? const Color(0xFF16A34A) : const Color(0xFF4F46E5),
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  _cargoTransitState.toUpperCase(),
+                                  style: TextStyle(
+                                    fontFamily: 'Segoe UI Variable',
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.6,
+                                    color: _isCargoLoaded ? const Color(0xFF16A34A) : const Color(0xFF4F46E5),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const Text(
-                            '1 min',
-                            style: TextStyle(
-                              fontFamily: 'Segoe UI Variable',
-                              fontSize: 26,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF1E2822),
-                            ),
+                          const SizedBox(height: 6),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Text(
+                                '$_remainingDurationMin min',
+                                style: const TextStyle(
+                                  fontFamily: 'Segoe UI Variable',
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF1E2822),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '(${_remainingDistanceKm.toStringAsFixed(1)} km left)',
+                                style: const TextStyle(
+                                  fontFamily: 'Segoe UI Variable',
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF6B7E74),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -2264,7 +2724,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  _cargoNotes.isNotEmpty ? 'Note: $_cargoNotes' : 'Any pickup notes?',
+                                  _cargoNotes.isNotEmpty ? 'Chat: "$_cargoNotes"' : 'Chat with Driver & Notes',
                                   style: const TextStyle(
                                     fontFamily: 'Segoe UI Variable',
                                     fontSize: 12.5,
@@ -2914,12 +3374,27 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
       }
     } catch (_) {}
 
+    // Update persistent history to mark status as Cancelled
+    if (_assignedTrip != null) {
+      final tripToSave = Map<String, dynamic>.from(_assignedTrip!);
+      tripToSave['status'] = 'Cancelled';
+      tripToSave['is_active'] = false;
+      tripToSave['cancellation_reason'] = reason;
+      tripToSave['cancelled_at'] = DateTime.now().toIso8601String();
+      await SessionManager.saveBookedTrip(tripToSave);
+      if (tripId.isNotEmpty) {
+        await SessionManager.updateBookedTripStatus(tripId, 'Cancelled', reason: reason);
+      }
+    } else if (tripId.isNotEmpty) {
+      await SessionManager.updateBookedTripStatus(tripId, 'Cancelled', reason: reason);
+    }
+
     await SessionManager.clearActiveTrip();
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Shipment cancelled: $reason'),
+        content: Text('Shipment cancelled: $reason. Quoted fare: TZS 0 charged.'),
         backgroundColor: const Color(0xFF1E2822),
         duration: const Duration(seconds: 3),
       ),
@@ -2991,6 +3466,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
   @override
   void dispose() {
     _driverWaitTimer?.cancel();
+    _driverMotionTimer?.cancel();
     _sheetController.dispose();
     super.dispose();
   }
@@ -3173,37 +3649,78 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                       );
                     }),
 
-                    // Destination Dropoff Marker
-                    Marker(
-                      point: _currentDropoffLatLng,
-                      width: 48,
-                      height: 54,
-                      alignment: Alignment.topCenter,
-                      child: GestureDetector(
-                        onTap: () => _showEditLocationModal(isPickup: false),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
+                    // 4. Live Moving Driver Vehicle Marker (Shows when driver accepted / in motion)
+                    if (_driverMarkerPosition != null)
+                      Marker(
+                        point: _driverMarkerPosition!,
+                        width: 72,
+                        height: 72,
+                        alignment: Alignment.center,
+                        child: Stack(
+                          alignment: Alignment.center,
                           children: [
+                            // Radar pulse
                             Container(
-                              padding: const EdgeInsets.all(7),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF0F172A),
+                              width: 66,
+                              height: 66,
+                              decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(0, 3)),
+                                color: const Color(0xFF16A34A).withValues(alpha: 0.22),
+                              ),
+                            ),
+                            // White vehicle container with shadow
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: const Color(0xFF16A34A), width: 2.5),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 8,
+                                    offset: Offset(0, 3),
+                                  ),
                                 ],
                               ),
-                              child: const Icon(Icons.location_on_rounded, color: Color(0xFFEF4444), size: 22),
+                              child: Center(
+                                child: Transform.rotate(
+                                  angle: _driverBearing * math.pi / 180,
+                                  child: const Icon(
+                                    Icons.navigation_rounded,
+                                    color: Color(0xFF16A34A),
+                                    size: 26,
+                                  ),
+                                ),
+                              ),
                             ),
-                            Container(
-                              width: 4,
-                              height: 8,
-                              color: const Color(0xFF0F172A),
+                            // Floating Plate Tag Pill
+                            Positioned(
+                              top: 2,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1E2822),
+                                  borderRadius: BorderRadius.circular(6),
+                                  boxShadow: const [
+                                    BoxShadow(color: Colors.black26, blurRadius: 4),
+                                  ],
+                                ),
+                                child: Text(
+                                  _assignedTrip?['plateNumber']?.toString() ?? 'CARGO',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ),
                   ],
                 ),
               ],

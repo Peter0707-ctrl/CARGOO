@@ -135,12 +135,40 @@ class SessionManager {
   static Future<void> saveBookedTrip(Map<String, dynamic> trip) async {
     try {
       final list = await getBookedTrips();
+      // Remove any existing entry with the same id to avoid duplicates
+      list.removeWhere((item) => item['id'] == trip['id']);
       list.insert(0, trip);
       if (list.length > 20) {
         list.removeRange(20, list.length);
       }
       final file = await _getTripsFile();
       await file.writeAsString(jsonEncode(list));
+    } catch (_) {}
+  }
+
+  /// Updates an existing booked trip by trip_id (e.g. marking as Cancelled, Driver Dispatched, or Completed)
+  static Future<void> updateBookedTripStatus(String tripId, String status, {String? reason}) async {
+    try {
+      final list = await getBookedTrips();
+      bool found = false;
+      for (int i = 0; i < list.length; i++) {
+        if (list[i]['id'] == tripId || list[i]['trip_id'] == tripId) {
+          list[i]['status'] = status;
+          list[i]['is_active'] = status == 'Driver Dispatched' || status == 'In Transit';
+          if (reason != null) {
+            list[i]['cancellation_reason'] = reason;
+          }
+          if (status == 'Cancelled' || status == 'Canceled') {
+            list[i]['cancelled_at'] = DateTime.now().toIso8601String();
+          }
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        final file = await _getTripsFile();
+        await file.writeAsString(jsonEncode(list));
+      }
     } catch (_) {}
   }
 

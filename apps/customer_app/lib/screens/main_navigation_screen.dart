@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/session_manager.dart';
 import '../services/api_service.dart';
 import 'login_screen.dart';
@@ -83,6 +84,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     }
   }
 
+  bool _hasPromptedScheduledTrip = false;
+
   Future<void> _loadBookedTrips() async {
     setState(() => _isLoadingTrips = true);
     final trips = await SessionManager.getBookedTrips();
@@ -91,7 +94,146 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         _bookedTrips = trips;
         _isLoadingTrips = false;
       });
+      _checkAndNotifyScheduledTrip();
     }
+  }
+
+  void _checkAndNotifyScheduledTrip() {
+    if (_hasPromptedScheduledTrip || !mounted || _activeTrip != null) return;
+    final scheduledTrip = _bookedTrips.firstWhere(
+      (t) => (t['isScheduled'] == true || t['status'] == 'Scheduled') &&
+             t['status'] != 'Cancelled' &&
+             t['status'] != 'Canceled' &&
+             t['status'] != 'Completed',
+      orElse: () => {},
+    );
+    if (scheduledTrip.isNotEmpty) {
+      _hasPromptedScheduledTrip = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showScheduledDispatchPrompt(scheduledTrip);
+      });
+    }
+  }
+
+  Future<void> _showScheduledDispatchPrompt(Map<String, dynamic> trip) async {
+    final vehicle = trip['vehicle']?.toString() ?? 'Cargo Truck';
+    final dropoff = trip['dropoff']?.toString() ?? 'Dropoff Destination';
+    final scheduledDate = trip['scheduledFor']?.toString() ?? 'Scheduled Time';
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        actionsPadding: const EdgeInsets.all(16),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEF2FF),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.notifications_active_rounded, color: Color(0xFF4F46E5), size: 24),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Scheduled Delivery Alert',
+                style: TextStyle(
+                  fontFamily: 'Segoe UI Variable',
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16.5,
+                  color: Color(0xFF1E2822),
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Safari yako ya $vehicle kuelekea "$dropoff" iliyoratibiwa ($scheduledDate) ipo tayari.',
+              style: const TextStyle(fontSize: 13.5, color: Color(0xFF334155), height: 1.4),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFF4F46E5)),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Je, tutafute dereva sasa hivi au unataka kuahirisha/kughairi?',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4F46E5)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _cancelScheduledTrip(trip);
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFDC2626),
+                    side: const BorderSide(color: Color(0xFFDC2626)),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Cancel • Ghairi', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _dispatchScheduledTrip(trip);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Tafuta Dereva', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text(
+                'Subiri Muda Ufike • Keep Scheduled',
+                style: TextStyle(color: Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _detectRealGpsLocation() async {
@@ -802,6 +944,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _showWaybillDialog(Map<String, dynamic> trip) {
+    final status = trip['status']?.toString() ?? 'Completed';
+    final isCancelled = status.toLowerCase().contains('cancel');
+    final isScheduled = !isCancelled && (trip['isScheduled'] == true || status == 'Scheduled');
+    final fare = trip['fare']?.toString() ?? 'TZS 0';
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -822,15 +969,38 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     children: [
                       Container(
                         padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: const Color(0xFFE5EEF5), borderRadius: BorderRadius.circular(10)),
-                        child: const Icon(Icons.receipt_long_rounded, color: Color(0xFF4B7B9F), size: 22),
+                        decoration: BoxDecoration(
+                          color: isCancelled
+                              ? const Color(0xFFFEF2F2)
+                              : (isScheduled ? const Color(0xFFEEF2FF) : const Color(0xFFE5EEF5)),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          isCancelled
+                              ? Icons.cancel_outlined
+                              : (isScheduled ? Icons.schedule_rounded : Icons.receipt_long_rounded),
+                          color: isCancelled
+                              ? const Color(0xFFDC2626)
+                              : (isScheduled ? const Color(0xFF4F46E5) : const Color(0xFF4B7B9F)),
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('OFFICIAL CARGO WAYBILL', style: TextStyle(fontFamily: 'Segoe UI Variable', fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF1E2822))),
-                          Text('Ref: ${trip['id']}', style: const TextStyle(fontSize: 12, color: Color(0xFF4B7B9F), fontWeight: FontWeight.w800)),
+                          Text(
+                            isCancelled
+                                ? 'CANCELLED SHIPMENT RECORD'
+                                : (isScheduled ? 'SCHEDULED RESERVATION' : 'OFFICIAL CARGO WAYBILL'),
+                            style: const TextStyle(
+                              fontFamily: 'Segoe UI Variable',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFF1E2822),
+                            ),
+                          ),
+                          Text('Ref: ${trip['id']}', style: TextStyle(fontSize: 12, color: isCancelled ? const Color(0xFFDC2626) : const Color(0xFF4B7B9F), fontWeight: FontWeight.w800)),
                         ],
                       ),
                     ],
@@ -838,7 +1008,85 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
+
+              if (isCancelled)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFFCA5A5)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.cancel_rounded, color: Color(0xFFDC2626), size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'SHIPMENT CANCELLED • SAFARI IMEGHAIRIWA',
+                              style: TextStyle(
+                                fontFamily: 'Segoe UI Variable',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFFDC2626),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              trip['cancellation_reason'] != null
+                                  ? 'Reason: ${trip['cancellation_reason']}'
+                                  : 'Safari ilighairiwa na mtumiaji kabla mzigo haujaanza kusafirishwa.',
+                              style: const TextStyle(fontSize: 11.5, color: Color(0xFF991B1B)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else if (isScheduled)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEEF2FF),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFC7D2FE)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.alarm_on_rounded, color: Color(0xFF4F46E5), size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'SCHEDULED FOR FUTURE PICKUP',
+                              style: TextStyle(
+                                fontFamily: 'Segoe UI Variable',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF4F46E5),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Pickup Time: ${trip['scheduledFor'] ?? "Reserved"}',
+                              style: const TextStyle(fontSize: 11.5, color: Color(0xFF3730A3), fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -848,17 +1096,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 ),
                 child: Column(
                   children: [
-                    _buildWaybillRow('Vehicle', '${trip['vehicle'] ?? "Cargo"} (${trip['plateNumber'] ?? "Assigned"})'),
+                    _buildWaybillRow('Vehicle Type', '${trip['vehicle'] ?? "Cargo Truck"} (${trip['plateNumber'] ?? "Reserved"})'),
                     const Divider(height: 14),
-                    _buildWaybillRow('Assigned Driver', trip['driverName'] ?? 'Assigned Driver'),
-                    const Divider(height: 14),
-                    _buildWaybillRow('Driver Phone', trip['driverPhone'] ?? 'Contact via App'),
+                    _buildWaybillRow('Assigned Driver', trip['driverName'] ?? (isCancelled ? 'None (Cancelled)' : 'On Standby')),
                     const Divider(height: 14),
                     _buildWaybillRow('Pickup Origin', trip['pickup'] ?? 'Pickup Point'),
                     const Divider(height: 14),
                     _buildWaybillRow('Dropoff Destination', trip['dropoff'] ?? 'Dropoff Point'),
                     const Divider(height: 14),
-                    _buildWaybillRow('Road Distance', '${trip['distanceKm']} km'),
+                    _buildWaybillRow('Road Distance', '${trip['distanceKm'] ?? "0.0"} km'),
                     if (trip['recipient'] != null && trip['recipient'].toString().isNotEmpty) ...[
                       const Divider(height: 14),
                       _buildWaybillRow('Dropoff Contact', '${trip['recipient']} (${trip['recipientPhone'] ?? ''})'),
@@ -868,47 +1114,139 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       _buildWaybillRow('Cargo Manifest', trip['notes']),
                     ],
                     const Divider(height: 14),
-                    _buildWaybillRow('Total Billed Fare', trip['fare'], isBold: true),
-                    const Divider(height: 14),
-                    _buildWaybillRow('Payment Status', '${trip['paymentMethod']} (Pending upon delivery)'),
+                    _buildWaybillRow('Quoted Journey Fare', fare, isBold: true),
+                    if (isCancelled) ...[
+                      const Divider(height: 14),
+                      _buildWaybillRow('Cancellation Fee', 'TZS 0 (Zero Fee)'),
+                      const Divider(height: 14),
+                      _buildWaybillRow('Final Amount Charged', 'TZS 0 (Hakuna makato)', isBold: true),
+                      const Divider(height: 14),
+                      _buildWaybillRow('Journey Status', 'Cancelled (Safari Imesitishwa)'),
+                    ] else ...[
+                      const Divider(height: 14),
+                      _buildWaybillRow('Payment Status', '${trip['paymentMethod'] ?? "Cash"} (${isScheduled ? "Pending upon pickup" : "Pending upon delivery"})'),
+                      const Divider(height: 14),
+                      _buildWaybillRow('Journey Status', status),
+                    ],
                   ],
                 ),
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Calling Driver: ${trip['driverPhone'] ?? "0714 882 109"}')),
-                        );
-                      },
-                      icon: const Icon(Icons.phone_rounded, size: 16, color: Color(0xFF4B7B9F)),
-                      label: const Text('Call Driver', style: TextStyle(color: Color(0xFF4B7B9F), fontWeight: FontWeight.w800)),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Color(0xFFCAD4CC)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              if (isCancelled)
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _openRouteSearch();
+                        },
+                        icon: const Icon(Icons.replay_rounded, size: 16, color: Color(0xFF4B7B9F)),
+                        label: const Text('Rebook Delivery', style: TextStyle(color: Color(0xFF4B7B9F), fontWeight: FontWeight.w800)),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFFCAD4CC)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.check_rounded, size: 16),
-                      label: const Text('Done', style: TextStyle(fontWeight: FontWeight.w800)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4B7B9F),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.check_rounded, size: 16),
+                        label: const Text('Close', style: TextStyle(fontWeight: FontWeight.w800)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4B7B9F),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                )
+              else if (isScheduled)
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _dispatchScheduledTrip(trip);
+                        },
+                        icon: const Icon(Icons.radar_rounded, size: 16),
+                        label: const Text('Dispatch Driver Now', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4F46E5),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: OutlinedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _cancelScheduledTrip(trip);
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFDC2626),
+                          side: const BorderSide(color: Color(0xFFDC2626)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final rawPhone = trip['driverPhone']?.toString().replaceAll(RegExp(r'\s+'), '') ?? '0714882109';
+                          final uri = Uri.parse('tel:$rawPhone');
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          } else {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Calling Driver: $rawPhone')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.phone_rounded, size: 16, color: Color(0xFF4B7B9F)),
+                        label: const Text('Call Driver', style: TextStyle(color: Color(0xFF4B7B9F), fontWeight: FontWeight.w800)),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFFCAD4CC)),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.check_rounded, size: 16),
+                        label: const Text('Done', style: TextStyle(fontWeight: FontWeight.w800)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4B7B9F),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
         );
@@ -1155,6 +1493,28 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           if (_activeTrip != null) ...[
             _buildActiveShipmentHomeBanner(),
             const SizedBox(height: 16),
+          ] else ...[
+            // Scheduled Cargo Reservation Banner (Shown when a trip is reserved for later)
+            Builder(
+              builder: (context) {
+                final scheduledTrip = _bookedTrips.firstWhere(
+                  (t) => (t['isScheduled'] == true || t['status'] == 'Scheduled') &&
+                         t['status'] != 'Cancelled' &&
+                         t['status'] != 'Canceled' &&
+                         t['status'] != 'Completed',
+                  orElse: () => {},
+                );
+                if (scheduledTrip.isNotEmpty) {
+                  return Column(
+                    children: [
+                      _buildScheduledShipmentHomeBanner(scheduledTrip),
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
           ],
 
           // Top Promo Banner (Bolt Image 1 style: "20% off 1 scheduled delivery")
@@ -1581,6 +1941,285 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildScheduledShipmentHomeBanner(Map<String, dynamic> trip) {
+    final vehicle = trip['vehicle']?.toString() ?? 'Cargo Truck';
+    final fare = trip['fare']?.toString() ?? 'TZS 0';
+    final scheduledDate = trip['scheduledFor']?.toString() ?? '';
+    final pickup = trip['pickup']?.toString() ?? 'Pickup Point';
+    final dropoff = trip['dropoff']?.toString() ?? 'Dropoff Point';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1B4B),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4338CA).withValues(alpha: 0.28),
+            blurRadius: 16,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF818CF8),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'SCHEDULED CARGO RESERVATION',
+                    style: TextStyle(
+                      fontFamily: 'Segoe UI Variable',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.1,
+                      color: Color(0xFF818CF8),
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  fare,
+                  style: const TextStyle(
+                    fontFamily: 'Segoe UI Variable',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4338CA).withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFF818CF8).withValues(alpha: 0.5)),
+                ),
+                child: const Icon(Icons.schedule_rounded, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$vehicle • Reserved for $scheduledDate',
+                      style: const TextStyle(
+                        fontFamily: 'Segoe UI Variable',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$pickup -> $dropoff',
+                      style: const TextStyle(
+                        fontFamily: 'Segoe UI Variable',
+                        fontSize: 11.5,
+                        color: Color(0xFFC7D2FE),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: ElevatedButton.icon(
+                  onPressed: () => _dispatchScheduledTrip(trip),
+                  icon: const Icon(Icons.radar_rounded, size: 16),
+                  label: const Text(
+                    'Dispatch Driver Now',
+                    style: TextStyle(
+                      fontFamily: 'Segoe UI Variable',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: OutlinedButton(
+                  onPressed: () => _cancelScheduledTrip(trip),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFFCA5A5),
+                    side: const BorderSide(color: Color(0xFFEF4444)),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(
+                      fontFamily: 'Segoe UI Variable',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _dispatchScheduledTrip(Map<String, dynamic> trip) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.local_shipping_rounded, color: Color(0xFF4F46E5), size: 24),
+            SizedBox(width: 10),
+            Text('Dispatch Driver Now', style: TextStyle(fontFamily: 'Segoe UI Variable', fontWeight: FontWeight.w900, fontSize: 17)),
+          ],
+        ),
+        content: Text(
+          'Start searching for a driver for your cargo shipment to "${trip['dropoff']}" right now?',
+          style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Wait for Later', style: TextStyle(color: Color(0xFF6B7E74), fontWeight: FontWeight.w700)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Dispatch Driver', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final updatedTrip = Map<String, dynamic>.from(trip);
+      updatedTrip['status'] = 'Driver Dispatched';
+      updatedTrip['is_active'] = true;
+      updatedTrip['isScheduled'] = false;
+      await SessionManager.saveActiveTrip(updatedTrip);
+      await SessionManager.updateBookedTripStatus(updatedTrip['id']?.toString() ?? '', 'Driver Dispatched');
+
+      final pLat = (updatedTrip['pickupLat'] as num?)?.toDouble() ?? -6.7715;
+      final pLng = (updatedTrip['pickupLng'] as num?)?.toDouble() ?? 39.2399;
+      final dLat = (updatedTrip['dropoffLat'] as num?)?.toDouble() ?? -6.8200;
+      final dLng = (updatedTrip['dropoffLng'] as num?)?.toDouble() ?? 39.2780;
+
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => MapRouteScreen(
+            pickupName: updatedTrip['pickup']?.toString() ?? 'Pickup Location',
+            pickupLatLng: LatLng(pLat, pLng),
+            dropoffName: updatedTrip['dropoff']?.toString() ?? 'Dropoff Destination',
+            dropoffLatLng: LatLng(dLat, dLng),
+            initialVehicleIndex: updatedTrip['vehicleIndex'] as int? ?? 0,
+            initialActiveTrip: updatedTrip,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _cancelScheduledTrip(Map<String, dynamic> trip) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.cancel_outlined, color: Color(0xFFDC2626), size: 24),
+            SizedBox(width: 10),
+            Text('Cancel Reservation', style: TextStyle(fontFamily: 'Segoe UI Variable', fontWeight: FontWeight.w900, fontSize: 17)),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to cancel this scheduled cargo booking? No cancellation fee will be charged.',
+          style: TextStyle(fontSize: 13.5, color: Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep Reservation', style: TextStyle(color: Color(0xFF6B7E74), fontWeight: FontWeight.w700)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Yes, Cancel', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final tripId = trip['id']?.toString() ?? '';
+      await SessionManager.updateBookedTripStatus(tripId, 'Cancelled', reason: 'Cancelled by customer before dispatch');
+      await _loadBookedTrips();
+      await _loadActiveTrip();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Scheduled reservation cancelled. Quoted fare: TZS 0 charged.'),
+          backgroundColor: Color(0xFF1E2822),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   Widget _buildServiceCard({
@@ -2444,17 +3083,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   Widget _buildBookedTripCard(Map<String, dynamic> trip) {
-    final isScheduled = trip['isScheduled'] == true;
-    final bool isActiveThisTrip = _activeTrip != null && _activeTrip!['id'] == trip['id'];
+    final status = trip['status']?.toString() ?? 'Completed';
+    final isCancelled = status.toLowerCase().contains('cancel');
+    final isScheduled = !isCancelled && (trip['isScheduled'] == true || status == 'Scheduled');
+    final bool isActiveThisTrip = !isCancelled && !isScheduled && _activeTrip != null && _activeTrip!['id'] == trip['id'];
+
     final vehicle = trip['vehicle'] ?? 'Cargo Truck';
     final fare = trip['fare'] ?? 'TZS 12,000';
     final distance = trip['distanceKm'] ?? '0.0';
     final pickup = trip['pickup'] ?? 'Pickup Location';
     final dropoff = trip['dropoff'] ?? 'Dropoff Location';
-    final plate = trip['plateNumber'] ?? 'Pending';
-    final driver = trip['driverName'] ?? 'Driver Assigned';
+    final plate = trip['plateNumber'] ?? (isCancelled ? 'N/A' : 'Pending');
+    final driver = trip['driverName'] ?? (isCancelled ? 'No Driver' : 'Driver Assigned');
     final tripId = trip['id'] ?? 'CRG-000';
     final scheduledDate = trip['scheduledFor'] ?? '';
+    final cancelReason = trip['cancellation_reason']?.toString();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2462,8 +3105,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isActiveThisTrip ? const Color(0xFF16A34A) : const Color(0xFFCAD4CC),
-          width: isActiveThisTrip ? 1.5 : 1.0,
+          color: isCancelled
+              ? const Color(0xFFFCA5A5)
+              : (isActiveThisTrip
+                  ? const Color(0xFF16A34A)
+                  : (isScheduled ? const Color(0xFFC7D2FE) : const Color(0xFFCAD4CC))),
+          width: (isActiveThisTrip || isCancelled || isScheduled) ? 1.5 : 1.0,
         ),
         boxShadow: [
           BoxShadow(
@@ -2486,10 +3133,20 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFE5EEF5),
+                        color: isCancelled
+                            ? const Color(0xFFFEF2F2)
+                            : (isScheduled ? const Color(0xFFEEF2FF) : const Color(0xFFE5EEF5)),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.local_shipping_rounded, color: Color(0xFF4B7B9F), size: 20),
+                      child: Icon(
+                        isCancelled
+                            ? Icons.cancel_outlined
+                            : (isScheduled ? Icons.schedule_rounded : Icons.local_shipping_rounded),
+                        color: isCancelled
+                            ? const Color(0xFFDC2626)
+                            : (isScheduled ? const Color(0xFF4338CA) : const Color(0xFF4B7B9F)),
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -2518,39 +3175,51 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isActiveThisTrip
-                      ? const Color(0xFFDCFCE7)
-                      : (isScheduled ? const Color(0xFFEEF2FF) : const Color(0xFFF1F5F9)),
+                  color: isCancelled
+                      ? const Color(0xFFFEF2F2)
+                      : (isActiveThisTrip
+                          ? const Color(0xFFDCFCE7)
+                          : (isScheduled ? const Color(0xFFEEF2FF) : const Color(0xFFF1F5F9))),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: isActiveThisTrip
-                        ? const Color(0xFF86EFAC)
-                        : (isScheduled ? const Color(0xFFC7D2FE) : const Color(0xFFCBD5E1)),
+                    color: isCancelled
+                        ? const Color(0xFFFCA5A5)
+                        : (isActiveThisTrip
+                            ? const Color(0xFF86EFAC)
+                            : (isScheduled ? const Color(0xFFC7D2FE) : const Color(0xFFCBD5E1))),
                   ),
                 ),
                 child: Row(
                   children: [
                     Icon(
-                      isActiveThisTrip
-                          ? Icons.radar_rounded
-                          : (isScheduled ? Icons.schedule_rounded : Icons.check_circle_rounded),
+                      isCancelled
+                          ? Icons.cancel_rounded
+                          : (isActiveThisTrip
+                              ? Icons.radar_rounded
+                              : (isScheduled ? Icons.schedule_rounded : Icons.check_circle_rounded)),
                       size: 13,
-                      color: isActiveThisTrip
-                          ? const Color(0xFF16A34A)
-                          : (isScheduled ? const Color(0xFF4338CA) : const Color(0xFF475569)),
+                      color: isCancelled
+                          ? const Color(0xFFDC2626)
+                          : (isActiveThisTrip
+                              ? const Color(0xFF16A34A)
+                              : (isScheduled ? const Color(0xFF4338CA) : const Color(0xFF475569))),
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      isActiveThisTrip
-                          ? 'In Transit'
-                          : (isScheduled ? 'Scheduled' : 'Completed'),
+                      isCancelled
+                          ? 'Cancelled'
+                          : (isActiveThisTrip
+                              ? 'In Transit'
+                              : (isScheduled ? 'Scheduled' : 'Completed')),
                       style: TextStyle(
                         fontFamily: 'Segoe UI Variable',
                         fontSize: 11.5,
                         fontWeight: FontWeight.w800,
-                        color: isActiveThisTrip
-                            ? const Color(0xFF16A34A)
-                            : (isScheduled ? const Color(0xFF4338CA) : const Color(0xFF475569)),
+                        color: isCancelled
+                            ? const Color(0xFFDC2626)
+                            : (isActiveThisTrip
+                                ? const Color(0xFF16A34A)
+                                : (isScheduled ? const Color(0xFF4338CA) : const Color(0xFF475569))),
                       ),
                     ),
                   ],
@@ -2559,22 +3228,46 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             ],
           ),
 
-          if (isScheduled && scheduledDate.isNotEmpty) ...[
+          if (isCancelled && cancelReason != null && cancelReason.isNotEmpty) ...[
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
+                color: const Color(0xFFFFF1F2),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+                border: Border.all(color: const Color(0xFFFECDD3)),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.event_available_rounded, size: 14, color: Color(0xFF4B7B9F)),
+                  const Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFFE11D48)),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Reason: $cancelReason',
+                      style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF9F1239)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (isScheduled && scheduledDate.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEF2FF),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFC7D2FE)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.event_available_rounded, size: 14, color: Color(0xFF4338CA)),
                   const SizedBox(width: 6),
                   Text(
                     'Transit: $scheduledDate',
-                    style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+                    style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF312E81)),
                   ),
                 ],
               ),
@@ -2592,7 +3285,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   Container(
                     width: 10,
                     height: 10,
-                    decoration: const BoxDecoration(color: Color(0xFF4B7B9F), shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: isCancelled ? const Color(0xFFDC2626) : const Color(0xFF4B7B9F),
+                      shape: BoxShape.circle,
+                    ),
                   ),
                   Container(
                     width: 2,
@@ -2632,8 +3328,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFFF2F5F1),
+              color: isCancelled ? const Color(0xFFFFF5F5) : const Color(0xFFF2F5F1),
               borderRadius: BorderRadius.circular(12),
+              border: isCancelled ? Border.all(color: const Color(0xFFFEE2E2)) : null,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2641,9 +3338,28 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Total Calculated Fare', style: TextStyle(fontSize: 10.5, color: Color(0xFF6B7E74), fontWeight: FontWeight.w600)),
+                    Text(
+                      isCancelled ? 'Quoted Fare (Not Charged)' : 'Total Calculated Fare',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: isCancelled ? const Color(0xFF991B1B) : const Color(0xFF6B7E74),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 2),
-                    Text(fare, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF1E2822))),
+                    Text(
+                      fare,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                        color: isCancelled ? const Color(0xFFB91C1C) : const Color(0xFF1E2822),
+                      ),
+                    ),
+                    if (isCancelled)
+                      const Text(
+                        'Charged: TZS 0 (Zero Fee)',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF15803D)),
+                      ),
                   ],
                 ),
                 const SizedBox(width: 8),
@@ -2651,9 +3367,23 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text('Plate: $plate', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF4B7B9F)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(
+                        isCancelled ? 'Status: Cancelled' : 'Plate: $plate',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: isCancelled ? const Color(0xFFDC2626) : const Color(0xFF4B7B9F),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       const SizedBox(height: 2),
-                      Text('$distance km • $driver', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(
+                        isCancelled ? 'No penalty applied' : '$distance km • $driver',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ),
                 ),
@@ -2664,45 +3394,116 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           const SizedBox(height: 12),
 
           // Action Buttons
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
+          if (isCancelled)
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showWaybillDialog(trip),
+                    icon: const Icon(Icons.receipt_long_outlined, size: 15, color: Color(0xFF4B7B9F)),
+                    label: const Text('Trip Details', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF4B7B9F))),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFFCAD4CC)),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _openRouteSearch(),
+                    icon: const Icon(Icons.replay_rounded, size: 15),
+                    label: const Text('Rebook Delivery', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4B7B9F),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else if (isScheduled)
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _dispatchScheduledTrip(trip),
+                    icon: const Icon(Icons.radar_rounded, size: 15),
+                    label: const Text('Dispatch Driver Now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4F46E5),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 2,
+                  child: OutlinedButton(
+                    onPressed: () => _cancelScheduledTrip(trip),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFDC2626),
+                      side: const BorderSide(color: Color(0xFFDC2626)),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Text('Cancel', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
                   onPressed: () => _showWaybillDialog(trip),
-                  icon: const Icon(Icons.receipt_long_outlined, size: 15, color: Color(0xFF4B7B9F)),
-                  label: const Text('Digital Waybill', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF4B7B9F))),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFFCAD4CC)),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  icon: const Icon(Icons.receipt_long_outlined, size: 18, color: Color(0xFF4B7B9F)),
+                  tooltip: 'Details',
+                ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showWaybillDialog(trip),
+                    icon: const Icon(Icons.receipt_long_outlined, size: 15, color: Color(0xFF4B7B9F)),
+                    label: const Text('Digital Waybill', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF4B7B9F))),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFFCAD4CC)),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    if (isActiveThisTrip) {
-                      _openActiveTripTracking();
-                    } else {
-                      _openRouteSearch();
-                    }
-                  },
-                  icon: Icon(isActiveThisTrip ? Icons.map_rounded : Icons.replay_rounded, size: 15),
-                  label: Text(
-                    isActiveThisTrip ? 'Track Live' : 'Rebook',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isActiveThisTrip ? const Color(0xFF16A34A) : const Color(0xFF4B7B9F),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      if (isActiveThisTrip) {
+                        _openActiveTripTracking();
+                      } else {
+                        _openRouteSearch();
+                      }
+                    },
+                    icon: Icon(isActiveThisTrip ? Icons.map_rounded : Icons.replay_rounded, size: 15),
+                    label: Text(
+                      isActiveThisTrip ? 'Track Live' : 'Rebook',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isActiveThisTrip ? const Color(0xFF16A34A) : const Color(0xFF4B7B9F),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );
