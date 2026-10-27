@@ -53,6 +53,12 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
   Map<String, dynamic>? _assignedTrip;
   Timer? _driverWaitTimer;
 
+  String _currentPickupName = '';
+  late LatLng _currentPickupLatLng;
+  String _currentDropoffName = '';
+  late LatLng _currentDropoffLatLng;
+  final List<Map<String, dynamic>> _intermediateStops = [];
+
   List<LatLng> _routePoints = [];
   double _distanceKm = 0.0;
   int _durationMinutes = 0;
@@ -148,6 +154,12 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
 
   void _showDriverChatAndNotesModal() {
     final textCtrl = TextEditingController();
+    final trip = _assignedTrip ?? {};
+    final driverName = trip['driverName']?.toString() ?? 'Assigned Driver';
+    final plateNumber = trip['plateNumber']?.toString() ?? '';
+    final driverVehicle = trip['driverVehicle']?.toString() ?? trip['vehicle']?.toString() ?? 'Cargo';
+    final initial = driverName.isNotEmpty ? driverName[0].toUpperCase() : 'D';
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -181,21 +193,24 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                               shape: BoxShape.circle,
                               color: Color(0xFFE5EEF5),
                             ),
-                            child: const Center(
-                              child: Text('A', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF4B7B9F), fontSize: 18)),
+                            child: Center(
+                              child: Text(initial, style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF4B7B9F), fontSize: 18)),
                             ),
                           ),
                           const SizedBox(width: 12),
-                          const Column(
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Ally Mussa', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Color(0xFF1E2822))),
-                              SizedBox(height: 2),
+                              Text(driverName, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Color(0xFF1E2822))),
+                              const SizedBox(height: 2),
                               Row(
                                 children: [
-                                  CircleAvatar(radius: 3.5, backgroundColor: Color(0xFF16A34A)),
-                                  SizedBox(width: 5),
-                                  Text('Online • T 489 DXA (Kirikuu)', style: TextStyle(fontSize: 11.5, color: Color(0xFF6B7E74), fontWeight: FontWeight.w600)),
+                                  const CircleAvatar(radius: 3.5, backgroundColor: Color(0xFF16A34A)),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    plateNumber.isNotEmpty ? 'Online • $plateNumber ($driverVehicle)' : 'Online • $driverVehicle',
+                                    style: const TextStyle(fontSize: 11.5, color: Color(0xFF6B7E74), fontWeight: FontWeight.w600),
+                                  ),
                                 ],
                               ),
                             ],
@@ -308,11 +323,309 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
       context,
       MaterialPageRoute(
         builder: (context) => RouteSearchScreen(
-          currentPickup: widget.pickupName,
-          currentPickupLatLng: widget.pickupLatLng,
+          currentPickup: _currentPickupName,
+          currentPickupLatLng: _currentPickupLatLng,
           initialVehicleIndex: _selectedVehicleIndex ?? 0,
         ),
       ),
+    );
+  }
+
+  void _fitRouteBounds() {
+    if (!mounted) return;
+    final allPoints = <LatLng>[
+      _currentPickupLatLng,
+      ..._intermediateStops.map((s) => s['latLng'] as LatLng),
+      _currentDropoffLatLng,
+      ..._routePoints,
+    ];
+    if (allPoints.isEmpty) return;
+    try {
+      final bounds = LatLngBounds.fromPoints(allPoints);
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: const EdgeInsets.only(top: 85, left: 45, right: 45, bottom: 330),
+          maxZoom: 16.0,
+        ),
+      );
+    } catch (e) {
+      debugPrint('fitCamera error: $e');
+    }
+  }
+
+  void _addStop(String name, LatLng latLng) {
+    setState(() {
+      _intermediateStops.add({
+        'name': name,
+        'latLng': latLng,
+      });
+      _distanceKm += 3.8;
+      _durationMinutes += 12;
+      _recomputeFares();
+    });
+    _fetchRealRoadRoute();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Stop added: "$name". Route & fare updated.'),
+        backgroundColor: const Color(0xFF16A34A),
+      ),
+    );
+  }
+
+  void _removeStop(int index) {
+    if (index < 0 || index >= _intermediateStops.length) return;
+    final name = _intermediateStops[index]['name'];
+    setState(() {
+      _intermediateStops.removeAt(index);
+      _distanceKm = math.max(1.0, _distanceKm - 3.8);
+      _durationMinutes = math.max(5, _durationMinutes - 12);
+      _recomputeFares();
+    });
+    _fetchRealRoadRoute();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Stop "$name" removed.'),
+        backgroundColor: const Color(0xFF4B7B9F),
+      ),
+    );
+  }
+
+  void _showAddStopModal() {
+    final customCtrl = TextEditingController();
+    final popularStops = [
+      {'name': 'Ubungo Bus Terminal', 'lat': -6.7800, 'lng': 39.2100},
+      {'name': 'Kariakoo Market', 'lat': -6.8200, 'lng': 39.2780},
+      {'name': 'Posta / Kivukoni', 'lat': -6.8160, 'lng': 39.2960},
+      {'name': 'Mwenge Bus Stand', 'lat': -6.7715, 'lng': 39.2399},
+      {'name': 'Tegeta Kibaoni', 'lat': -6.6780, 'lng': 39.2080},
+      {'name': 'Mbezi Magufuli Terminal', 'lat': -6.7890, 'lng': 39.1240},
+      {'name': 'Sinza Mori', 'lat': -6.7810, 'lng': 39.2340},
+      {'name': 'Temeke Stereo', 'lat': -6.8570, 'lng': 39.2680},
+      {'name': 'Kigamboni Ferry', 'lat': -6.8240, 'lng': 39.3010},
+      {'name': 'Vingunguti Industrial', 'lat': -6.8370, 'lng': 39.2290},
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (modalCtx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 18,
+            bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFCAD4CC),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Add Place to Stop',
+                style: TextStyle(
+                  fontFamily: 'Segoe UI Variable',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF1E2822),
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Add intermediate dropoff or cargo loading point along your route:',
+                style: TextStyle(
+                  fontFamily: 'Segoe UI Variable',
+                  fontSize: 12,
+                  color: Color(0xFF6B7E74),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFCAD4CC)),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: TextField(
+                        controller: customCtrl,
+                        decoration: const InputDecoration(
+                          hintText: 'Type place name (e.g. Ubungo, Sinza)...',
+                          border: InputBorder.none,
+                          hintStyle: TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    onPressed: () {
+                      final text = customCtrl.text.trim();
+                      if (text.isNotEmpty) {
+                        Navigator.pop(modalCtx);
+                        final midLat = (_currentPickupLatLng.latitude + _currentDropoffLatLng.latitude) / 2;
+                        final midLng = (_currentPickupLatLng.longitude + _currentDropoffLatLng.longitude) / 2;
+                        _addStop(text, LatLng(midLat + 0.005, midLng - 0.005));
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4B7B9F),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Add', style: TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Or choose popular intermediate points:',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF1E2822)),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: popularStops.map((stop) {
+                  return InkWell(
+                    onTap: () {
+                      Navigator.pop(modalCtx);
+                      _addStop(stop['name'] as String, LatLng(stop['lat'] as double, stop['lng'] as double));
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF2F5F1),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFCAD4CC)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.add_location_alt_outlined, size: 14, color: Color(0xFF4B7B9F)),
+                          const SizedBox(width: 6),
+                          Text(
+                            stop['name'] as String,
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E2822)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showEditLocationModal({required bool isPickup}) {
+    final textCtrl = TextEditingController(text: isPickup ? _currentPickupName : _currentDropoffName);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (modalCtx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 18,
+            bottom: MediaQuery.of(modalCtx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFCAD4CC),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                isPickup ? 'Edit Pickup Location' : 'Edit Dropoff Destination',
+                style: const TextStyle(
+                  fontFamily: 'Segoe UI Variable',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF1E2822),
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: textCtrl,
+                decoration: InputDecoration(
+                  labelText: isPickup ? 'Pickup Address' : 'Dropoff Address',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: Icon(
+                    isPickup ? Icons.my_location_rounded : Icons.location_on_rounded,
+                    color: isPickup ? const Color(0xFF16A34A) : const Color(0xFFEF4444),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  final newName = textCtrl.text.trim();
+                  if (newName.isNotEmpty) {
+                    setState(() {
+                      if (isPickup) {
+                        _currentPickupName = newName;
+                      } else {
+                        _currentDropoffName = newName;
+                      }
+                    });
+                    Navigator.pop(modalCtx);
+                    _fetchRealRoadRoute();
+                    WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1E2822),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Update Route', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -643,6 +956,11 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
     _mapController = MapController();
     _sheetController = DraggableScrollableController();
 
+    _currentPickupName = widget.pickupName;
+    _currentPickupLatLng = widget.pickupLatLng;
+    _currentDropoffName = widget.dropoffName;
+    _currentDropoffLatLng = widget.dropoffLatLng;
+
     if (widget.initialActiveTrip != null) {
       _assignedTrip = widget.initialActiveTrip;
       _bookingStage = BookingStage.driverAccepted;
@@ -659,6 +977,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
     });
 
     _initRouteAndCalculateFares();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
   }
 
   static bool _isValidTzCoord(double? lat, double? lng) {
@@ -669,10 +988,10 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
   }
 
   void _initRouteAndCalculateFares() {
-    double pLat = widget.pickupLatLng.latitude;
-    double pLng = widget.pickupLatLng.longitude;
-    double dLat = widget.dropoffLatLng.latitude;
-    double dLng = widget.dropoffLatLng.longitude;
+    double pLat = _currentPickupLatLng.latitude;
+    double pLng = _currentPickupLatLng.longitude;
+    double dLat = _currentDropoffLatLng.latitude;
+    double dLng = _currentDropoffLatLng.longitude;
 
     // Strict boundary enforcement: NEVER point to Atlantic ocean (0.0, 0.0)
     if (!_isValidTzCoord(pLat, pLng)) {
@@ -686,12 +1005,11 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
 
     _routePoints = [
       LatLng(pLat, pLng),
-      LatLng(pLat + (dLat - pLat) * 0.35, pLng + (dLng - pLng) * 0.20),
-      LatLng(pLat + (dLat - pLat) * 0.70, pLng + (dLng - pLng) * 0.65),
+      ..._intermediateStops.map((s) => s['latLng'] as LatLng),
       LatLng(dLat, dLng),
     ];
 
-    final initialKm = _calculateHaversineRoadKm(LatLng(pLat, pLng), LatLng(dLat, dLng));
+    final initialKm = _calculateHaversineRoadKm(LatLng(pLat, pLng), LatLng(dLat, dLng)) + (_intermediateStops.length * 3.8);
     _distanceKm = initialKm;
     _durationMinutes = math.max(6, (initialKm * 2.5).ceil());
     _recomputeFares();
@@ -700,10 +1018,10 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
   }
 
   Future<void> _fetchRealRoadRoute() async {
-    double pLat = widget.pickupLatLng.latitude;
-    double pLng = widget.pickupLatLng.longitude;
-    double dLat = widget.dropoffLatLng.latitude;
-    double dLng = widget.dropoffLatLng.longitude;
+    double pLat = _currentPickupLatLng.latitude;
+    double pLng = _currentPickupLatLng.longitude;
+    double dLat = _currentDropoffLatLng.latitude;
+    double dLng = _currentDropoffLatLng.longitude;
 
     if (!_isValidTzCoord(pLat, pLng)) {
       pLat = -6.7715;
@@ -715,8 +1033,17 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
     }
 
     try {
+      final coords = [
+        '$pLng,$pLat',
+        ..._intermediateStops.map((s) {
+          final pos = s['latLng'] as LatLng;
+          return '${pos.longitude},${pos.latitude}';
+        }),
+        '$dLng,$dLat',
+      ].join(';');
+
       final url = Uri.parse(
-        'https://router.project-osrm.org/route/v1/driving/$pLng,$pLat;$dLng,$dLat?overview=full&geometries=geojson',
+        'https://router.project-osrm.org/route/v1/driving/$coords?overview=full&geometries=geojson',
       );
       final res = await http.get(url).timeout(const Duration(seconds: 5));
       if (res.statusCode == 200) {
@@ -737,6 +1064,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
               _isLoadingRoute = false;
               _recomputeFares();
             });
+            WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
             return;
           }
         }
@@ -747,8 +1075,14 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
 
     if (mounted) {
       setState(() {
+        _routePoints = [
+          LatLng(pLat, pLng),
+          ..._intermediateStops.map((s) => s['latLng'] as LatLng),
+          LatLng(dLat, dLng),
+        ];
         _isLoadingRoute = false;
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
     }
   }
 
@@ -831,9 +1165,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
   }
 
   void _recenter() {
-    final midLat = (widget.pickupLatLng.latitude + widget.dropoffLatLng.latitude) / 2;
-    final midLng = (widget.pickupLatLng.longitude + widget.dropoffLatLng.longitude) / 2;
-    _mapController.move(LatLng(midLat, midLng), 14.2);
+    _fitRouteBounds();
   }
 
   Future<void> _handleConfirmOrder() async {
@@ -841,22 +1173,34 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
     final selectedVehicle = _vehicles[_selectedVehicleIndex!];
 
     final user = await SessionManager.getUser();
-    final customerName = user?['name']?.toString() ?? user?['full_name']?.toString() ?? 'John Mwangi';
-    final customerPhone = user?['phone']?.toString() ?? '+255 754 123 456';
+    final realPhone = user?['phone']?.toString() ?? '';
+    final rawName = (user?['name']?.toString() ?? user?['full_name']?.toString() ?? '').trim();
+    final customerName = rawName.isNotEmpty ? rawName : (realPhone.isNotEmpty ? 'Customer ($realPhone)' : 'Cargo Customer');
+    final customerPhone = realPhone.isNotEmpty ? realPhone : '';
     final customerAvatar = user?['avatar_url']?.toString() ?? '';
-    final customerNida = user?['nida_number']?.toString() ?? user?['nida']?.toString() ?? '19900101123450000120';
+    final customerNida = user?['nida_number']?.toString() ?? user?['nida']?.toString() ?? '';
 
     final tripId = 'CRG-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
-    final driverName = selectedVehicle['id'] == 'guta'
-        ? 'Ally Mussa'
-        : (selectedVehicle['id'] == 'kirikuu' ? 'Juma Bakari' : 'Daudi Tanasio');
-    final driverVehicle = selectedVehicle['id'] == 'guta'
-        ? 'Black · Bajaj Boxer Guta'
-        : (selectedVehicle['id'] == 'kirikuu' ? 'White · Suzuki Carry' : 'Blue · Heavy Cargo');
-    final driverPhone = '0714 882 109';
-    final plateNumber = selectedVehicle['id'] == 'guta'
-        ? 'MC750DVJ'
-        : (selectedVehicle['id'] == 'kirikuu' ? 'T 219 EAB' : 'T 638 DZA');
+    
+    // Dynamic vehicle details matching real selected fleet
+    final vehicleName = selectedVehicle['name']?.toString() ?? 'Cargo Truck';
+    final vehicleId = selectedVehicle['id']?.toString() ?? 'kirikuu';
+    final randNum = 100 + (tripId.hashCode.abs() % 899);
+    final letters = ['ABC', 'DXA', 'EBT', 'DTG', 'CKM', 'DFJ', 'ENZ', 'FBL', 'HKA'];
+    final randLetters = letters[tripId.hashCode.abs() % letters.length];
+    final plateNumber = vehicleId == 'guta'
+        ? 'MC$randNum$randLetters'
+        : 'T $randNum $randLetters';
+
+    final driverNames = [
+      'Kassim Mrope', 'Salum Kibada', 'Hassan Mwinyi', 
+      'Rashid Mchopa', 'Omari Mkude', 'Baraka Mgaya', 
+      'Emmanuel Msigwa', 'Godfrey Mremi', 'Said Mtambo'
+    ];
+    final driverName = driverNames[tripId.hashCode.abs() % driverNames.length];
+    final vehicleColors = ['White', 'Silver', 'Blue', 'Yellow', 'Black'];
+    final driverVehicle = '${vehicleColors[tripId.hashCode.abs() % vehicleColors.length]} · $vehicleName';
+    final driverPhone = '+255 7${(10 + (tripId.hashCode.abs() % 89))} ${(100 + (tripId.hashCode.abs() % 899))} ${(100 + ((tripId.hashCode.abs() ~/ 10) % 899))}';
 
     final bookedTrip = {
       'id': tripId,
@@ -868,12 +1212,13 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
       'vehicleId': selectedVehicle['id'],
       'driverVehicle': driverVehicle,
       'fare': selectedVehicle['price'],
-      'pickup': widget.pickupName,
-      'pickupLat': widget.pickupLatLng.latitude,
-      'pickupLng': widget.pickupLatLng.longitude,
-      'dropoff': widget.dropoffName,
-      'dropoffLat': widget.dropoffLatLng.latitude,
-      'dropoffLng': widget.dropoffLatLng.longitude,
+      'pickup': _currentPickupName,
+      'pickupLat': _currentPickupLatLng.latitude,
+      'pickupLng': _currentPickupLatLng.longitude,
+      'dropoff': _currentDropoffName,
+      'dropoffLat': _currentDropoffLatLng.latitude,
+      'dropoffLng': _currentDropoffLatLng.longitude,
+      'stops': _intermediateStops,
       'distanceKm': _distanceKm.toStringAsFixed(1),
       'durationMinutes': _durationMinutes,
       'paymentMethod': _paymentMethod,
@@ -907,12 +1252,13 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
         'sender_phone': bookedTrip['senderPhone'],
         'recipient_name': bookedTrip['recipient'],
         'recipient_phone': bookedTrip['recipientPhone'],
-        'pickup_name': widget.pickupName,
-        'pickup_lat': widget.pickupLatLng.latitude,
-        'pickup_lng': widget.pickupLatLng.longitude,
-        'dropoff_name': widget.dropoffName,
-        'dropoff_lat': widget.dropoffLatLng.latitude,
-        'dropoff_lng': widget.dropoffLatLng.longitude,
+        'pickup_name': _currentPickupName,
+        'pickup_lat': _currentPickupLatLng.latitude,
+        'pickup_lng': _currentPickupLatLng.longitude,
+        'dropoff_name': _currentDropoffName,
+        'dropoff_lat': _currentDropoffLatLng.latitude,
+        'dropoff_lng': _currentDropoffLatLng.longitude,
+        'stops': _intermediateStops,
         'vehicle_type': selectedVehicle['name'],
         'vehicle_id': selectedVehicle['id'],
         'fare_amount': selectedVehicle['price'],
@@ -943,6 +1289,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
       _assignedTrip = bookedTrip;
       _bookingStage = BookingStage.waitingForDriver;
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
 
     try {
       _sheetController.animateTo(
@@ -958,6 +1305,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
         setState(() {
           _bookingStage = BookingStage.driverAccepted;
         });
+        WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
         try {
           _sheetController.animateTo(
             0.65,
@@ -1766,10 +2114,12 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
   // ==================== 4. DRIVER ACCEPTED STAGE (EXACT IMAGE 3 REPLICA) ====================
   Widget _buildDriverAcceptedStage(ScrollController scrollController) {
     final trip = _assignedTrip ?? {};
-    final driverName = trip['driverName']?.toString() ?? 'Daudi Tanasio';
-    final plateNumber = trip['plateNumber']?.toString() ?? 'MC750DVJ';
-    final driverVehicle = trip['driverVehicle']?.toString() ?? 'Black · Bajaj Boxer';
-    final fare = trip['fare']?.toString() ?? 'TZS 5,000';
+    final selectedVehName = _selectedVehicleIndex != null ? _vehicles[_selectedVehicleIndex!]['name'] as String : 'Cargo Truck';
+    final driverName = trip['driverName']?.toString() ?? 'Assigned Driver';
+    final plateNumber = trip['plateNumber']?.toString() ?? '';
+    final driverVehicle = trip['driverVehicle']?.toString() ?? trip['vehicle']?.toString() ?? selectedVehName;
+    final fare = trip['fare']?.toString() ?? (_selectedVehicleIndex != null ? _vehicles[_selectedVehicleIndex!]['price'] as String : 'TZS 5,000');
+    final driverPhone = trip['driverPhone']?.toString() ?? trip['driver_phone']?.toString() ?? '';
 
     return Container(
       decoration: BoxDecoration(
@@ -1837,7 +2187,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '$plateNumber · $driverVehicle',
+                            plateNumber.isNotEmpty ? '$plateNumber · $driverVehicle' : driverVehicle,
                             style: const TextStyle(
                               fontFamily: 'Segoe UI Variable',
                               fontSize: 13.5,
@@ -1869,8 +2219,11 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                             color: const Color(0xFFE5EEF5),
                             border: Border.all(color: const Color(0xFFCAD4CC), width: 1.5),
                           ),
-                          child: const Center(
-                            child: Icon(Icons.person_rounded, size: 36, color: Color(0xFF4B7B9F)),
+                          child: Center(
+                            child: Text(
+                              driverName.isNotEmpty ? driverName[0].toUpperCase() : 'D',
+                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 24, color: Color(0xFF4B7B9F)),
+                            ),
                           ),
                         ),
                         Positioned(
@@ -1937,7 +2290,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                       ),
                       child: IconButton(
                         icon: const Icon(Icons.phone_rounded, size: 18, color: Color(0xFF4B7B9F)),
-                        onPressed: () => _callDriver('+255714882109'),
+                        onPressed: () => _callDriver(driverPhone),
                       ),
                     ),
                   ],
@@ -1972,9 +2325,9 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                       ),
                     ),
                     InkWell(
-                      onTap: _openChangeRoute,
+                      onTap: _showAddStopModal,
                       child: const Text(
-                        'Edit',
+                        '+ Add Stop',
                         style: TextStyle(
                           fontFamily: 'Segoe UI Variable',
                           fontSize: 12.5,
@@ -2002,7 +2355,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                         ),
                         Container(
                           width: 2,
-                          height: 30,
+                          height: 32 + (_intermediateStops.length * 36.0),
                           color: const Color(0xFFCAD4CC),
                         ),
                         Container(
@@ -2020,52 +2373,114 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  widget.pickupName,
-                                  style: const TextStyle(
-                                    fontFamily: 'Segoe UI Variable',
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF1E2822),
+                          InkWell(
+                            onTap: () => _showEditLocationModal(isPickup: true),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _currentPickupName,
+                                    style: const TextStyle(
+                                      fontFamily: 'Segoe UI Variable',
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1E2822),
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-                              const Icon(Icons.edit_outlined, size: 16, color: Color(0xFF6B7E74)),
-                            ],
+                                const SizedBox(width: 6),
+                                const Icon(Icons.edit_outlined, size: 16, color: Color(0xFF6B7E74)),
+                              ],
+                            ),
                           ),
+                          if (_intermediateStops.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            ..._intermediateStops.asMap().entries.map((entry) {
+                              final idx = entry.key;
+                              final stop = entry.value;
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFEF3C7),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFFFDE68A)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.location_on_rounded, size: 14, color: Color(0xFFD97706)),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Stop ${idx + 1}: ${stop['name']}',
+                                        style: const TextStyle(
+                                          fontFamily: 'Segoe UI Variable',
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFF92400E),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    InkWell(
+                                      onTap: () => _removeStop(idx),
+                                      child: const Icon(Icons.close_rounded, size: 16, color: Color(0xFFB45309)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
                           const SizedBox(height: 6),
-                          const Text(
-                            '+ Add stop',
-                            style: TextStyle(
-                              fontFamily: 'Segoe UI Variable',
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF6B7E74),
+                          InkWell(
+                            onTap: _showAddStopModal,
+                            borderRadius: BorderRadius.circular(6),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.add_circle_outline_rounded, size: 14, color: Color(0xFF4B7B9F)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _intermediateStops.isEmpty ? '+ Add stop' : '+ Add another stop',
+                                    style: const TextStyle(
+                                      fontFamily: 'Segoe UI Variable',
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF4B7B9F),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                           const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  widget.dropoffName,
-                                  style: const TextStyle(
-                                    fontFamily: 'Segoe UI Variable',
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF1E2822),
+                          InkWell(
+                            onTap: () => _showEditLocationModal(isPickup: false),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _currentDropoffName,
+                                    style: const TextStyle(
+                                      fontFamily: 'Segoe UI Variable',
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1E2822),
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-                              const Icon(Icons.edit_outlined, size: 16, color: Color(0xFF6B7E74)),
-                            ],
+                                const SizedBox(width: 6),
+                                const Icon(Icons.edit_outlined, size: 16, color: Color(0xFF6B7E74)),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -2201,45 +2616,9 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
             ),
           ),
 
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
 
-          // 2. Return to Home (Keeps delivery active in background)
-          OutlinedButton(
-            onPressed: () {
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (context) => const MainNavigationScreen(initialTabIndex: 0)),
-                (route) => false,
-              );
-            },
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF1E2822),
-              side: const BorderSide(color: Color(0xFFCAD4CC)),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.home_outlined, size: 18, color: Color(0xFF4B7B9F)),
-                SizedBox(width: 8),
-                Text(
-                  'Return to Home • Shipment Stays Active',
-                  style: TextStyle(
-                    fontFamily: 'Segoe UI Variable',
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 6),
-
-          // 3. Cancel Option with 10 Strong Reasons
+          // 2. Cancel Option with 10 Strong Reasons
           Center(
             child: TextButton(
               onPressed: _showCancellationReasonsModal,
@@ -2250,6 +2629,22 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                   fontSize: 12.5,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFFDC2626),
+                ),
+              ),
+            ),
+          ),
+
+          // 3. Discreet Dev Simulation for testing
+          Center(
+            child: TextButton(
+              onPressed: _devSimulateDriverCompletion,
+              child: const Text(
+                '• Dev Mode: Simulate Driver Arrival & Offload •',
+                style: TextStyle(
+                  fontFamily: 'Segoe UI Variable',
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF94A3B8),
                 ),
               ),
             ),
@@ -2354,8 +2749,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
       builder: (ctx) {
         return StatefulBuilder(
           builder: (sheetContext, setModalState) {
-            final isScam = _tenCancellationReasons[selectedIndex]['isScamReport'] == true;
-
             return SafeArea(
               child: Container(
                 constraints: BoxConstraints(
@@ -2397,34 +2790,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
                     ),
                     const SizedBox(height: 12),
 
-                    if (isScam) ...[
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEF2F2),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFFCA5A5)),
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.shield_outlined, color: Color(0xFFDC2626), size: 20),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'CARGOO Anti-Fraud: This report will be audited by Admin. You will not be penalized, and the driver will be investigated.',
-                                style: TextStyle(
-                                  fontFamily: 'Segoe UI Variable',
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF991B1B),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
+
 
                     Flexible(
                       child: ListView.separated(
@@ -2634,263 +3000,330 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
     final midLat = (widget.pickupLatLng.latitude + widget.dropoffLatLng.latitude) / 2;
     final midLng = (widget.pickupLatLng.longitude + widget.dropoffLatLng.longitude) / 2;
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        statusBarBrightness: Brightness.light,
-        systemNavigationBarColor: Colors.white,
-        systemNavigationBarDividerColor: Colors.transparent,
-        systemNavigationBarIconBrightness: Brightness.dark,
-        systemNavigationBarContrastEnforced: false,
-      ),
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF8FAFC),
-      body: Stack(
-        children: [
-          // 1. Google Maps Official Roadmap Tiles
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: LatLng(midLat, midLng),
-              initialZoom: 14.2,
-              minZoom: 11.0,
-              maxZoom: 19.0,
-              interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.all,
+    return PopScope(
+      canPop: _bookingStage == BookingStage.vehicleSelection,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Safari ipo hewani. Huwezi kuondoka mpaka mzigo ufike au ughairi safari.'),
+            backgroundColor: Color(0xFFDC2626),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      },
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
+          systemNavigationBarColor: Colors.white,
+          systemNavigationBarDividerColor: Colors.transparent,
+          systemNavigationBarIconBrightness: Brightness.dark,
+          systemNavigationBarContrastEnforced: false,
+        ),
+        child: Scaffold(
+          backgroundColor: const Color(0xFFF8FAFC),
+        body: Stack(
+          children: [
+            // 1. Google Maps Official Roadmap Tiles
+            FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: LatLng(midLat, midLng),
+                initialZoom: 13.5,
+                minZoom: 4.0,
+                maxZoom: 19.0,
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.all,
+                ),
               ),
-            ),
-            children: [
-              // Google Maps Standard Roadmap Tiles (identical to Bolt & Google Maps)
-              TileLayer(
-                urlTemplate: 'https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}',
-                subdomains: const ['mt0', 'mt1', 'mt2', 'mt3'],
-                userAgentPackageName: 'com.cargoo.customer.customer_app',
-                maxZoom: 20,
-              ),
+              children: [
+                // Google Maps Standard Roadmap Tiles (identical to Bolt & Google Maps)
+                TileLayer(
+                  urlTemplate: 'https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}',
+                  subdomains: const ['mt0', 'mt1', 'mt2', 'mt3'],
+                  userAgentPackageName: 'com.cargoo.customer.customer_app',
+                  maxZoom: 20,
+                ),
 
-              // Route Polyline (CARGOO Slate Blue Line)
-              PolylineLayer(
-                polylines: [
-                  // Outer casing / glow
-                  Polyline(
-                    points: _routePoints,
-                    strokeWidth: 8.0,
-                    color: const Color(0xFF4B7B9F).withValues(alpha: 0.35),
-                  ),
-                  // Core route line
-                  Polyline(
-                    points: _routePoints,
-                    strokeWidth: 5.0,
-                    color: const Color(0xFF4B7B9F),
-                  ),
-                ],
-              ),
+                // Route Polyline (CARGOO Slate Blue Line)
+                PolylineLayer(
+                  polylines: [
+                    // Outer casing / glow
+                    Polyline(
+                      points: _routePoints,
+                      strokeWidth: 8.0,
+                      color: const Color(0xFF4B7B9F).withValues(alpha: 0.35),
+                    ),
+                    // Core route line
+                    Polyline(
+                      points: _routePoints,
+                      strokeWidth: 5.0,
+                      color: const Color(0xFF4B7B9F),
+                    ),
+                  ],
+                ),
 
-              // Pickup & Dropoff Markers
-              MarkerLayer(
-                markers: [
-                  // Pickup Marker with Speech Bubble (Exact Image 1 & 2)
-                  Marker(
-                    point: widget.pickupLatLng,
-                    width: 140,
-                    height: 72,
-                    alignment: Alignment.bottomCenter,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1E2822),
-                            borderRadius: BorderRadius.circular(10),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
-                            ],
+                // Pickup, Stops & Dropoff Markers
+                MarkerLayer(
+                  markers: [
+                    // Pickup Marker with Speech Bubble (Exact Image 1 & 2)
+                    Marker(
+                      point: _currentPickupLatLng,
+                      width: 140,
+                      height: 72,
+                      alignment: Alignment.bottomCenter,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GestureDetector(
+                            onTap: () => _showEditLocationModal(isPickup: true),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E2822),
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: const [
+                                  BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+                                ],
+                              ),
+                              child: const Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'Pickup here',
+                                    style: TextStyle(
+                                      fontFamily: 'Segoe UI Variable',
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Tap to edit',
+                                    style: TextStyle(
+                                      fontFamily: 'Segoe UI Variable',
+                                      fontSize: 9.5,
+                                      color: Color(0xFFCAD4CC),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                          child: const Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Pickup here',
-                                style: TextStyle(
+                          CustomPaint(
+                            size: const Size(8, 4),
+                            painter: TrianglePainter(color: const Color(0xFF1E2822)),
+                          ),
+                          const SizedBox(height: 2),
+                          Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(0xFF4B7B9F),
+                              border: Border.all(color: Colors.white, width: 3),
+                              boxShadow: const [
+                                BoxShadow(color: Colors.black38, blurRadius: 4, offset: Offset(0, 2)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Intermediate Stops Markers
+                    ..._intermediateStops.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final stop = entry.value;
+                      final stopPos = stop['latLng'] as LatLng;
+                      return Marker(
+                        point: stopPos,
+                        width: 140,
+                        height: 58,
+                        alignment: Alignment.bottomCenter,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFD97706),
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: const [
+                                  BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+                                ],
+                              ),
+                              child: Text(
+                                'Stop ${idx + 1}: ${stop['name']}',
+                                style: const TextStyle(
                                   fontFamily: 'Segoe UI Variable',
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w900,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
                                   color: Colors.white,
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              Text(
-                                'Tap to edit',
-                                style: TextStyle(
-                                  fontFamily: 'Segoe UI Variable',
-                                  fontSize: 9.5,
-                                  color: Color(0xFFCAD4CC),
-                                ),
+                            ),
+                            const Icon(Icons.location_on_rounded, size: 26, color: Color(0xFFD97706)),
+                          ],
+                        ),
+                      );
+                    }),
+
+                    // Destination Dropoff Marker
+                    Marker(
+                      point: _currentDropoffLatLng,
+                      width: 48,
+                      height: 54,
+                      alignment: Alignment.topCenter,
+                      child: GestureDetector(
+                        onTap: () => _showEditLocationModal(isPickup: false),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(7),
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF0F172A),
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(0, 3)),
+                                ],
                               ),
-                            ],
-                          ),
+                              child: const Icon(Icons.location_on_rounded, color: Color(0xFFEF4444), size: 22),
+                            ),
+                            Container(
+                              width: 4,
+                              height: 8,
+                              color: const Color(0xFF0F172A),
+                            ),
+                          ],
                         ),
-                        CustomPaint(
-                          size: const Size(8, 4),
-                          painter: TrianglePainter(color: const Color(0xFF1E2822)),
-                        ),
-                        const SizedBox(height: 2),
-                        Container(
-                          width: 18,
-                          height: 18,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: const Color(0xFF4B7B9F),
-                            border: Border.all(color: Colors.white, width: 3),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black38, blurRadius: 4, offset: Offset(0, 2)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Destination Dropoff Marker
-                  Marker(
-                    point: widget.dropoffLatLng,
-                    width: 48,
-                    height: 54,
-                    alignment: Alignment.topCenter,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(7),
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF0F172A),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(0, 3)),
-                            ],
-                          ),
-                          child: const Icon(Icons.location_on_rounded, color: Color(0xFFEF4444), size: 22),
-                        ),
-                        Container(
-                          width: 4,
-                          height: 8,
-                          color: const Color(0xFF0F172A),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-
-          // 2. Top Header Bar (Back button & Route Card or Circle Button)
-          if (_bookingStage == BookingStage.vehicleSelection)
-            PositionBar(
-              pickupName: widget.pickupName,
-              dropoffName: widget.dropoffName,
-              onBack: () {
-                if (Navigator.canPop(context)) {
-                  Navigator.pop(context);
-                } else {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
-                  );
-                }
-              },
-              onEdit: _openChangeRoute,
-            )
-          else
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 10,
-              left: 16,
-              child: GestureDetector(
-                onTap: () {
-                  if (_bookingStage == BookingStage.confirmPickup) {
-                    setState(() => _bookingStage = BookingStage.vehicleSelection);
-                  } else if (_bookingStage == BookingStage.waitingForDriver) {
-                    _driverWaitTimer?.cancel();
-                    setState(() => _bookingStage = BookingStage.vehicleSelection);
-                  } else {
-                    Navigator.pop(context);
-                  }
-                },
-                child: Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.14),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
                       ),
-                    ],
-                  ),
-                  child: Icon(
-                    _bookingStage == BookingStage.confirmPickup ? Icons.arrow_back_rounded : Icons.person_outline_rounded,
-                    color: const Color(0xFF1E2822),
-                    size: 22,
-                  ),
-                ),
-              ),
-            ),
-
-          // 3. Floating Right Map Controls (Recenter, Sheet Toggle - zoom +/- removed per spec)
-          Positioned(
-            right: 16,
-            top: 150,
-            child: Column(
-              children: [
-                _buildMapFloatingBtn(
-                  icon: Icons.my_location_rounded,
-                  tooltip: 'My Location',
-                  onTap: _recenter,
-                ),
-                const SizedBox(height: 8),
-                _buildMapFloatingBtn(
-                  icon: _isSheetCollapsed ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-                  tooltip: _isSheetCollapsed ? 'View Vehicles' : 'Full Map',
-                  onTap: _toggleSheetCollapse,
-                  color: const Color(0xFF4B7B9F),
-                  iconColor: Colors.white,
+                    ),
+                  ],
                 ),
               ],
             ),
-          ),
 
-          // 4. Draggable Cargo Vehicle Bottom Sheet (Stage-Driven UX Flow)
-          DraggableScrollableSheet(
-            controller: _sheetController,
-            initialChildSize: _bookingStage == BookingStage.driverAccepted
-                ? 0.70
-                : (_bookingStage == BookingStage.vehicleSelection ? 0.48 : 0.45),
-            minChildSize: 0.08,
-            maxChildSize: 0.90,
-            snap: true,
-            snapSizes: const [0.08, 0.40, 0.45, 0.48, 0.70, 0.90],
-            builder: (context, scrollController) {
-              switch (_bookingStage) {
-                case BookingStage.vehicleSelection:
-                  return _buildVehicleSelectionStage(scrollController);
-                case BookingStage.confirmPickup:
-                  return _buildConfirmPickupStage(scrollController);
-                case BookingStage.waitingForDriver:
-                  return _buildWaitingForDriverStage(scrollController);
-                case BookingStage.driverAccepted:
-                  return _buildDriverAcceptedStage(scrollController);
-              }
-            },
-          ),
-        ],
+            // 2. Top Header Bar (Back button & Route Card or Circle Button)
+            if (_bookingStage == BookingStage.vehicleSelection)
+              PositionBar(
+                pickupName: _currentPickupName,
+                dropoffName: _currentDropoffName,
+                onBack: () {
+                  if (Navigator.canPop(context)) {
+                    Navigator.pop(context);
+                  } else {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
+                    );
+                  }
+                },
+                onEdit: _openChangeRoute,
+              )
+            else
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 10,
+                left: 16,
+                child: GestureDetector(
+                  onTap: () {
+                    if (_bookingStage == BookingStage.confirmPickup) {
+                      setState(() => _bookingStage = BookingStage.vehicleSelection);
+                    } else if (_bookingStage == BookingStage.waitingForDriver) {
+                      _driverWaitTimer?.cancel();
+                      setState(() => _bookingStage = BookingStage.vehicleSelection);
+                    } else if (_bookingStage == BookingStage.driverAccepted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Safari ipo hewani. Huwezi kuondoka mpaka mzigo ufike au ughairi safari.'),
+                          backgroundColor: Color(0xFFDC2626),
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                    } else {
+                      Navigator.pop(context);
+                    }
+                  },
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.14),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      _bookingStage == BookingStage.confirmPickup ? Icons.arrow_back_rounded : Icons.person_outline_rounded,
+                      color: const Color(0xFF1E2822),
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ),
+
+            // 3. Floating Right Map Controls (Recenter, Sheet Toggle - zoom +/- removed per spec)
+            Positioned(
+              right: 16,
+              top: 150,
+              child: Column(
+                children: [
+                  _buildMapFloatingBtn(
+                    icon: Icons.my_location_rounded,
+                    tooltip: 'Recenter Route',
+                    onTap: _recenter,
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMapFloatingBtn(
+                    icon: _isSheetCollapsed ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                    tooltip: _isSheetCollapsed ? 'View Vehicles' : 'Full Map',
+                    onTap: _toggleSheetCollapse,
+                    color: const Color(0xFF4B7B9F),
+                    iconColor: Colors.white,
+                  ),
+                ],
+              ),
+            ),
+
+            // 4. Draggable Cargo Vehicle Bottom Sheet (Stage-Driven UX Flow)
+            DraggableScrollableSheet(
+              controller: _sheetController,
+              initialChildSize: _bookingStage == BookingStage.driverAccepted
+                  ? 0.70
+                  : (_bookingStage == BookingStage.vehicleSelection ? 0.48 : 0.45),
+              minChildSize: 0.08,
+              maxChildSize: 0.90,
+              snap: true,
+              snapSizes: const [0.08, 0.40, 0.45, 0.48, 0.70, 0.90],
+              builder: (context, scrollController) {
+                switch (_bookingStage) {
+                  case BookingStage.vehicleSelection:
+                    return _buildVehicleSelectionStage(scrollController);
+                  case BookingStage.confirmPickup:
+                    return _buildConfirmPickupStage(scrollController);
+                  case BookingStage.waitingForDriver:
+                    return _buildWaitingForDriverStage(scrollController);
+                  case BookingStage.driverAccepted:
+                    return _buildDriverAcceptedStage(scrollController);
+                }
+              },
+            ),
+          ],
+        ),
       ),
-    ),
-  );
-}
+      ),
+    );
+  }
 
   Widget _buildMapFloatingBtn({
     required IconData icon,

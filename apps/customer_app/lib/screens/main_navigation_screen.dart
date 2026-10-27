@@ -848,15 +848,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 ),
                 child: Column(
                   children: [
-                    _buildWaybillRow('Vehicle', '${trip['vehicle']} (${trip['plateNumber']})'),
+                    _buildWaybillRow('Vehicle', '${trip['vehicle'] ?? "Cargo"} (${trip['plateNumber'] ?? "Assigned"})'),
                     const Divider(height: 14),
-                    _buildWaybillRow('Assigned Driver', trip['driverName'] ?? 'Ally Mussa'),
+                    _buildWaybillRow('Assigned Driver', trip['driverName'] ?? 'Assigned Driver'),
                     const Divider(height: 14),
-                    _buildWaybillRow('Driver Phone', trip['driverPhone'] ?? '0714 882 109'),
+                    _buildWaybillRow('Driver Phone', trip['driverPhone'] ?? 'Contact via App'),
                     const Divider(height: 14),
-                    _buildWaybillRow('Pickup Origin', trip['pickup'] ?? 'Mwenge, Dar es Salaam'),
+                    _buildWaybillRow('Pickup Origin', trip['pickup'] ?? 'Pickup Point'),
                     const Divider(height: 14),
-                    _buildWaybillRow('Dropoff Destination', trip['dropoff'] ?? 'Kariakoo Market'),
+                    _buildWaybillRow('Dropoff Destination', trip['dropoff'] ?? 'Dropoff Point'),
                     const Divider(height: 14),
                     _buildWaybillRow('Road Distance', '${trip['distanceKm']} km'),
                     if (trip['recipient'] != null && trip['recipient'].toString().isNotEmpty) ...[
@@ -1415,8 +1415,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   Widget _buildActiveShipmentHomeBanner() {
     final trip = _activeTrip ?? {};
-    final driverName = trip['driverName']?.toString() ?? 'Ally Mussa';
-    final plateNumber = trip['plateNumber']?.toString() ?? 'MC750DVJ';
+    final driverName = trip['driverName']?.toString() ?? 'Assigned Driver';
+    final plateNumber = trip['plateNumber']?.toString() ?? '';
     final vehicle = trip['vehicle']?.toString() ?? 'Cargo Vehicle';
     final destination = trip['destination']?.toString() ?? trip['dropoff']?.toString() ?? 'Destination';
     final fare = trip['fare']?.toString() ?? 'TZS 5,000';
@@ -2451,7 +2451,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final distance = trip['distanceKm'] ?? '0.0';
     final pickup = trip['pickup'] ?? 'Pickup Location';
     final dropoff = trip['dropoff'] ?? 'Dropoff Location';
-    final plate = trip['plateNumber'] ?? 'T 219 EAB';
+    final plate = trip['plateNumber'] ?? 'Pending';
     final driver = trip['driverName'] ?? 'Driver Assigned';
     final tripId = trip['id'] ?? 'CRG-000';
     final scheduledDate = trip['scheduledFor'] ?? '';
