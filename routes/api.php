@@ -21,6 +21,16 @@ Route::prefix('v1')->group(function () {
         Route::get('/orders', [OrderController::class, 'index']);
         Route::get('/orders/{trip_id}', [OrderController::class, 'show']);
         Route::patch('/orders/{trip_id}/status', [OrderController::class, 'updateStatus']);
+
+        // Dedicated Driver App Endpoints
+        Route::prefix('driver')->group(function () {
+            Route::get('/orders/pending', [\App\Http\Controllers\Api\DriverApiController::class, 'getPendingOrders']);
+            Route::post('/orders/{trip_id}/accept', [\App\Http\Controllers\Api\DriverApiController::class, 'acceptOrder']);
+            Route::post('/orders/{trip_id}/decline', [\App\Http\Controllers\Api\DriverApiController::class, 'declineOrder']);
+            Route::post('/vehicle/update', [\App\Http\Controllers\Api\DriverApiController::class, 'updateVehicle']);
+            Route::post('/kyc/verify', [\App\Http\Controllers\Api\DriverApiController::class, 'verifyKyc']);
+            Route::post('/wallet/topup', [\App\Http\Controllers\Api\DriverApiController::class, 'topupWallet']);
+        });
     });
 
     // 4. Delete Account (Secure user deletion with authenticated token or verified phone match)

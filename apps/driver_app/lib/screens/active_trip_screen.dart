@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/order_model.dart';
 import '../services/api_service.dart';
 import '../services/session_manager.dart';
+import 'main_navigation_screen.dart';
 import 'trip_completed_screen.dart';
 
 enum TripStage {
@@ -38,6 +41,7 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
   bool _canFinishTrip = false; // Must be <= 250 meters from dropoff
 
   Timer? _motionSimulationTimer;
+  Timer? _customerCancellationPoller;
   final List<Map<String, dynamic>> _chatMessages = [];
   final TextEditingController _chatInputController = TextEditingController();
 
@@ -51,13 +55,64 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
     _initDefaultChat();
     _calculateDistanceToDropoff();
     _startSimulatedGpsMotion();
+    _listenForCustomerCancellation();
   }
 
   @override
   void dispose() {
     _motionSimulationTimer?.cancel();
+    _customerCancellationPoller?.cancel();
     _chatInputController.dispose();
     super.dispose();
+  }
+
+  void _listenForCustomerCancellation() {
+    _customerCancellationPoller = Timer.periodic(const Duration(seconds: 4), (timer) async {
+      if (!mounted) return;
+      try {
+        final res = await http.get(Uri.parse('${ApiService.baseUrl}/orders/${widget.order.tripId}')).timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          if (data['order'] != null && data['order']['status'] == 'cancelled') {
+            timer.cancel();
+            await SessionManager.clearActiveTrip();
+            if (!mounted) return;
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                title: Row(
+                  children: const [
+                    Icon(Icons.info_rounded, color: Color(0xFFEF4444)),
+                    SizedBox(width: 8),
+                    Text('Safari Imeahirishwa', style: TextStyle(fontFamily: 'Segoe UI Variable', fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                content: const Text(
+                  'Mteja ameamua kuahirisha safari hii. Chombo chako kimerudishwa kwenye hali ya utayari kupokea mizigo mingine.',
+                  style: TextStyle(fontFamily: 'Segoe UI Variable', color: Color(0xFF64748B)),
+                ),
+                actions: [
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+                        (route) => false,
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF16A34A)),
+                    child: const Text('SAWA, NIMEFAHAMU', style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+              ),
+            );
+          }
+        }
+      } catch (_) {}
+    });
   }
 
   void _initDefaultChat() {
@@ -349,12 +404,21 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
       actionBtnColor = const Color(0xFF22C55E);
     }
 
-    // ANTI-FRAUD RULE: Cancel button disappears once cargo is loaded
-    final canCancel = _stage == TripStage.enRoutePickup || _stage == TripStage.arrivedPickup;
-
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
-      body: Stack(
+      body: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Huwezi kuondoka kwenye safari inayoendelea!'),
+              backgroundColor: Color(0xFFEF4444),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        },
+        child: Stack(
         children: [
           // 1. Live Flutter Map with Route Markers
           FlutterMap(
@@ -483,17 +547,23 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
-                  color: const Color(0xF50F172A),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFF1E293B)),
-                  boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 10)],
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(
-                        color: Color(0x3322C55E),
+                      decoration: BoxDecoration(
+                        color: actionBtnColor.withValues(alpha: 0.15),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(Icons.route_rounded, color: actionBtnColor, size: 22),
@@ -506,7 +576,13 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                         children: [
                           Text(
                             stageTitle.toUpperCase(),
-                            style: TextStyle(color: actionBtnColor, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5),
+                            style: TextStyle(
+                              fontFamily: 'Segoe UI Variable',
+                              color: actionBtnColor,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 12.5,
+                              letterSpacing: 0.5,
+                            ),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -515,13 +591,18 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                                 : 'Eneo la Mzigo: ${order.pickupName}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              fontFamily: 'Segoe UI Variable',
+                              color: Color(0xFF1E2822),
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.my_location_rounded, color: Colors.white),
+                      icon: const Icon(Icons.my_location_rounded, color: Color(0xFF4B7B9F)),
                       onPressed: () => _mapController.move(_driverLocation, 15),
                     ),
                   ],
@@ -538,17 +619,23 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: const Color(0xF51E293B),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF334155)),
-                boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 8)],
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
                   const CircleAvatar(
-                    backgroundColor: Color(0xFF38BDF8),
+                    backgroundColor: Color(0xFFE5EEF5),
                     radius: 20,
-                    child: Icon(Icons.person, color: Colors.white, size: 22),
+                    child: Icon(Icons.person, color: Color(0xFF4B7B9F), size: 22),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -556,23 +643,38 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(order.customerName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                        Text(order.customerPhone, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                        Text(
+                          order.customerName,
+                          style: const TextStyle(
+                            fontFamily: 'Segoe UI Variable',
+                            color: Color(0xFF1E2822),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        Text(
+                          order.customerPhone,
+                          style: const TextStyle(
+                            fontFamily: 'Segoe UI Variable',
+                            color: Color(0xFF6B7E74),
+                            fontSize: 12,
+                          ),
+                        ),
                       ],
                     ),
                   ),
                   // Call button
                   IconButton(
                     onPressed: _makePhoneCall,
-                    style: IconButton.styleFrom(backgroundColor: const Color(0x3322C55E)),
-                    icon: const Icon(Icons.call_rounded, color: Color(0xFF22C55E), size: 22),
+                    style: IconButton.styleFrom(backgroundColor: const Color(0x2016A34A)),
+                    icon: const Icon(Icons.call_rounded, color: Color(0xFF16A34A), size: 22),
                   ),
                   const SizedBox(width: 6),
                   // Chat button
                   IconButton(
                     onPressed: _openChatSheet,
-                    style: IconButton.styleFrom(backgroundColor: const Color(0x3338BDF8)),
-                    icon: const Icon(Icons.chat_rounded, color: Color(0xFF38BDF8), size: 22),
+                    style: IconButton.styleFrom(backgroundColor: const Color(0x204B7B9F)),
+                    icon: const Icon(Icons.chat_rounded, color: Color(0xFF4B7B9F), size: 22),
                   ),
                 ],
               ),
@@ -586,10 +688,16 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
             bottom: 0,
             child: Container(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              decoration: const BoxDecoration(
-                color: Color(0xFF0F172A),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 16, offset: Offset(0, -4))],
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 18,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -600,17 +708,27 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.payments_rounded, color: Color(0xFF22C55E), size: 20),
+                          const Icon(Icons.payments_rounded, color: Color(0xFF16A34A), size: 20),
                           const SizedBox(width: 8),
                           Text(
                             'Nauli ya Cash: ${order.fareAmount}',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14.5),
+                            style: const TextStyle(
+                              fontFamily: 'Segoe UI Variable',
+                              color: Color(0xFF1E2822),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14.5,
+                            ),
                           ),
                         ],
                       ),
                       Text(
                         'Kamasheni 7%: TZS ${order.commissionAmount.toStringAsFixed(0)}',
-                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 12),
+                        style: const TextStyle(
+                          fontFamily: 'Segoe UI Variable',
+                          color: Color(0xFF6B7E74),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -623,14 +741,17 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: _canFinishTrip ? const Color(0xFF14532D) : const Color(0xFF451A1A),
-                        borderRadius: BorderRadius.circular(10),
+                        color: _canFinishTrip ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _canFinishTrip ? const Color(0xFF16A34A) : const Color(0xFFEF4444),
+                        ),
                       ),
                       child: Row(
                         children: [
                           Icon(
                             _canFinishTrip ? Icons.check_circle_rounded : Icons.location_off_rounded,
-                            color: _canFinishTrip ? const Color(0xFF22C55E) : const Color(0xFFEF4444),
+                            color: _canFinishTrip ? const Color(0xFF16A34A) : const Color(0xFFEF4444),
                             size: 16,
                           ),
                           const SizedBox(width: 8),
@@ -640,7 +761,8 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                                   ? 'Ndani ya Mita 250 (Geofenced): Unaweza kumaliza safari sasa!'
                                   : 'Uko mita ${_distanceToDropoffMeters.toStringAsFixed(0)} kutoka eneo la kushusha (Kumaliza inaruhusiwa ndani ya 250m tu).',
                               style: TextStyle(
-                                color: _canFinishTrip ? const Color(0xFF4ADE80) : const Color(0xFFFCA5A5),
+                                fontFamily: 'Segoe UI Variable',
+                                color: _canFinishTrip ? const Color(0xFF15803D) : const Color(0xFFDC2626),
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -660,12 +782,13 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                       onPressed: (_stage == TripStage.arrivedDropoff && !_canFinishTrip) ? null : _nextStage,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: actionBtnColor,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        elevation: 4,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 2,
                       ),
                       child: Text(
                         actionBtnLabel,
                         style: const TextStyle(
+                          fontFamily: 'Segoe UI Variable',
                           color: Colors.white,
                           fontWeight: FontWeight.w900,
                           fontSize: 14.5,
@@ -675,52 +798,31 @@ class _ActiveTripScreenState extends State<ActiveTripScreen> {
                     ),
                   ),
 
-                  // Anti-fraud: Cancel is only available BEFORE cargo is loaded
-                  if (canCancel) ...[
-                    const SizedBox(height: 10),
-                    TextButton(
-                      onPressed: () async {
-                        final didCancel = await showDialog<bool>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            backgroundColor: const Color(0xFF1E293B),
-                            title: const Text('Ghairi Safari?', style: TextStyle(color: Colors.white)),
-                            content: const Text(
-                              'Una uhakika unataka kukataa safari hii kabla hujapakia mzigo?',
-                              style: TextStyle(color: Color(0xFFCBD5E1)),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx, false),
-                                child: const Text('HAPANA', style: TextStyle(color: Color(0xFF94A3B8))),
-                              ),
-                              ElevatedButton(
-                                onPressed: () => Navigator.pop(ctx, true),
-                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
-                                child: const Text('GHAIRI', style: TextStyle(color: Colors.white)),
-                              ),
-                            ],
-                          ),
-                        );
-
-                        if (didCancel == true && context.mounted) {
-                          await SessionManager.clearActiveTrip();
-                          if (!context.mounted) return;
-                          Navigator.pop(context);
-                        }
-                      },
-                      child: const Text(
-                        'Ghairi Safari Hii',
-                        style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.bold, fontSize: 13),
+                  // Anti-fraud: Driver cannot cancel once trip is accepted (Only customer has cancel authority)
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.shield_rounded, color: Color(0xFF6B7E74), size: 14),
+                      SizedBox(width: 6),
+                      Text(
+                        'Safari inaendelea. Ni mteja pekee anayeruhusiwa kughairi.',
+                        style: TextStyle(
+                          fontFamily: 'Segoe UI Variable',
+                          color: Color(0xFF6B7E74),
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ],
               ),
             ),
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 }

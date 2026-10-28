@@ -7,9 +7,9 @@ void main() {
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-      systemNavigationBarColor: Color(0xFF0F172A),
-      systemNavigationBarIconBrightness: Brightness.light,
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarColor: Color(0xFFF2F5F1),
+      systemNavigationBarIconBrightness: Brightness.dark,
     ),
   );
   runApp(const CargooDriverApp());
@@ -24,20 +24,21 @@ class CargooDriverApp extends StatelessWidget {
       title: 'CARGOO Dereva',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0F172A),
-        primaryColor: const Color(0xFF22C55E),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF22C55E),
-          secondary: Color(0xFF38BDF8),
-          surface: Color(0xFF1E293B),
+        brightness: Brightness.light,
+        scaffoldBackgroundColor: const Color(0xFFF2F5F1),
+        primaryColor: const Color(0xFF4B7B9F),
+        colorScheme: const ColorScheme.light(
+          primary: Color(0xFF4B7B9F),
+          secondary: Color(0xFF16A34A),
+          surface: Colors.white,
           error: Color(0xFFEF4444),
         ),
+        fontFamily: 'Segoe UI Variable',
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF0F172A),
+          backgroundColor: Colors.transparent,
           elevation: 0,
-          iconTheme: IconThemeData(color: Colors.white),
-          titleTextStyle: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          iconTheme: IconThemeData(color: Color(0xFF1E2822)),
+          titleTextStyle: TextStyle(color: Color(0xFF1E2822), fontSize: 18, fontWeight: FontWeight.bold),
         ),
         useMaterial3: true,
       ),
