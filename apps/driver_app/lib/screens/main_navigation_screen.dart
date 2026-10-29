@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/driver_model.dart';
 import '../models/order_model.dart';
 import '../services/api_service.dart';
@@ -79,6 +81,164 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,
+      );
+    }
+  }
+
+  void _deleteAccount() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444), size: 24),
+            SizedBox(width: 8),
+            Text(
+              'Futa Akaunti?',
+              style: TextStyle(
+                fontFamily: 'Segoe UI Variable',
+                color: Color(0xFFEF4444),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Je, una uhakika unataka kufuta akaunti yako ya dereva kabisa? Taarifa zako zote za chombo, nyaraka za KYC, salio na rekodi zote zitafutwa kabisa. Hatua hii haiwezi kubadilishwa.',
+          style: TextStyle(fontFamily: 'Segoe UI Variable', color: Color(0xFF6B7E74), fontSize: 13.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('GHAIRI', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('FUTA KABISA', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      await SessionManager.clearSession();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Akaunti yako ya dereva imefutwa kabisa.'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
+  }
+
+  Future<void> _changeProfilePicture() async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Weka Picha ya Wasifu',
+                style: TextStyle(
+                  fontFamily: 'Segoe UI Variable',
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E2822),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF1E2822)),
+                title: const Text('Piga Picha na Kamera', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final picker = ImagePicker();
+                  final picked = await picker.pickImage(
+                    source: ImageSource.camera,
+                    maxWidth: 1000,
+                    maxHeight: 1000,
+                    imageQuality: 85,
+                  );
+                  if (picked != null) {
+                    _updateProfilePhoto(picked.path);
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF1E2822)),
+                title: const Text('Chagua Kutoka Galari', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final picker = ImagePicker();
+                  final picked = await picker.pickImage(
+                    source: ImageSource.gallery,
+                    maxWidth: 1000,
+                    maxHeight: 1000,
+                    imageQuality: 85,
+                  );
+                  if (picked != null) {
+                    _updateProfilePhoto(picked.path);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _updateProfilePhoto(String path) async {
+    final current = _driver ??
+        DriverModel(
+          id: 'DRV-1',
+          name: 'Juma Shabani Mussa',
+          phone: '+255 714 882 109',
+          nida: '19920814-14102-00001-24',
+          licenseNumber: 'DL-772910',
+          licenseClass: 'Daraja C1 (Kirikuu & Canter Ndogo)',
+          vehicleType: 'Kirikuu Pick-up',
+          vehiclePlate: 'T 482 DWK',
+        );
+    final updated = current.copyWith(driverPhoto: path);
+    await SessionManager.saveDriver(updated);
+    setState(() {
+      _driver = updated;
+    });
+    HapticFeedback.lightImpact();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Picha ya wasifu imewekwa kikamilifu!'),
+          backgroundColor: Color(0xFF16A34A),
+        ),
       );
     }
   }
@@ -588,46 +748,52 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         child: Column(
           children: [
-            // Driver Profile Header Card
+            // Driver Profile Header Card (Frameless)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 20),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
               ),
               child: Column(
                 children: [
-                  Stack(
-                    alignment: Alignment.bottomRight,
-                    children: [
-                      Container(
-                        width: 76,
-                        height: 76,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE5EEF5),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFF4B7B9F), width: 2),
+                  GestureDetector(
+                    onTap: _changeProfilePicture,
+                    child: Stack(
+                      alignment: Alignment.bottomRight,
+                      children: [
+                        Container(
+                          width: 86,
+                          height: 86,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE5EEF5),
+                            shape: BoxShape.circle,
+                            image: driver != null &&
+                                    driver.driverPhoto.isNotEmpty &&
+                                    File(driver.driverPhoto).existsSync()
+                                ? DecorationImage(
+                                    image: FileImage(File(driver.driverPhoto)),
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
+                          ),
+                          child: driver == null ||
+                                  driver.driverPhoto.isEmpty ||
+                                  !File(driver.driverPhoto).existsSync()
+                              ? const Icon(Icons.person_rounded, color: Color(0xFF64748B), size: 52)
+                              : null,
                         ),
-                        child: const Icon(Icons.person_rounded, color: Color(0xFF4B7B9F), size: 48),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF16A34A),
-                          shape: BoxShape.circle,
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF1E2822),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 14),
                         ),
-                        child: const Icon(Icons.check, color: Colors.white, size: 14),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Text(
@@ -639,7 +805,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       color: Color(0xFF1E2822),
                     ),
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Text(
                     driver?.phone ?? '+255 714 882 109',
                     style: const TextStyle(
@@ -649,28 +815,27 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
 
                   // AI PJ Verification Badge
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF0FDF4),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFF16A34A)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: const [
-                        Icon(Icons.verified_rounded, color: Color(0xFF16A34A), size: 16),
-                        SizedBox(width: 6),
+                        Icon(Icons.verified_rounded, color: Color(0xFF16A34A), size: 14),
+                        SizedBox(width: 5),
                         Text(
                           'Imethibitishwa na AI PJ ✓',
                           style: TextStyle(
                             fontFamily: 'Segoe UI Variable',
                             color: Color(0xFF16A34A),
                             fontWeight: FontWeight.w800,
-                            fontSize: 12,
+                            fontSize: 11.5,
                           ),
                         ),
                       ],
@@ -680,71 +845,62 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
 
-            // 1. Button: Chombo cha Usafiri (Tazama & Badili Chombo)
-            _buildAccountMenuButton(
-              icon: Icons.local_shipping_rounded,
-              iconBg: const Color(0xFFE0F2FE),
-              iconColor: const Color(0xFF0284C7),
-              title: 'Chombo cha Usafiri',
-              subtitle: '${driver?.vehiclePlate ?? 'T 482 DWK'} • ${driver?.vehicleType ?? 'Kirikuu Pick-up'}',
-              badgeText: 'Badili',
-              onTap: _openEditVehicleDialog,
-            ),
-
-            // 2. Button: Uhakiki wa AI PJ & Nyaraka (KYC)
-            _buildAccountMenuButton(
-              icon: Icons.verified_user_rounded,
-              iconBg: const Color(0xFFDCFCE7),
-              iconColor: const Color(0xFF16A34A),
-              title: 'Uhakiki wa AI PJ & KYC',
-              subtitle: 'NIDA, Leseni, Picha & Cheti cha Usalama',
-              badgeText: 'Imethibitishwa ✓',
-              badgeColor: const Color(0xFF16A34A),
-              onTap: () {
-                if (driver != null) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => PjVerificationScreen(driver: driver)),
-                  );
-                }
-              },
-            ),
-
-            // 3. Button: Pochi ya Dereva & Kamasheni
-            _buildAccountMenuButton(
-              icon: Icons.account_balance_wallet_rounded,
-              iconBg: const Color(0xFFFEF3C7),
-              iconColor: const Color(0xFFD97706),
-              title: 'Pochi ya Dereva & Kamasheni',
-              subtitle: 'Kamasheni ya 7% • M-Pesa, Tigo Pesa, Airtel',
-              onTap: () {
-                setState(() => _currentIndex = 2);
-              },
-            ),
-
-            // 4. Button: Kituo cha Msaada & Huduma kwa Dereva
-            _buildAccountMenuButton(
-              icon: Icons.support_agent_rounded,
-              iconBg: const Color(0xFFF3E8FF),
-              iconColor: const Color(0xFF7C3AED),
-              title: 'Msaada & Huduma kwa Dereva',
-              subtitle: 'Msaada wa dharura 24/7 na ushauri',
-              onTap: _showSupportBottomSheet,
-            ),
-
-            const SizedBox(height: 10),
-
-            // 5. Button: Ondoka Kwenye Akaunti (Log Out)
-            _buildAccountMenuButton(
-              icon: Icons.logout_rounded,
-              iconBg: const Color(0xFFFEE2E2),
-              iconColor: const Color(0xFFEF4444),
-              title: 'Ondoka Kwenye Akaunti',
-              subtitle: 'Funga kipindi cha dereva kwa usalama',
-              isDestructive: true,
-              onTap: _logout,
+            // Clean Button List (No individual button frames, uncolored icons, no forms)
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                children: [
+                  _buildCleanButton(
+                    icon: Icons.local_shipping_outlined,
+                    title: 'Chombo cha Usafiri',
+                    onTap: _openEditVehicleDialog,
+                  ),
+                  const Divider(height: 1, indent: 54, endIndent: 16, color: Color(0xFFF1F5F9)),
+                  _buildCleanButton(
+                    icon: Icons.verified_user_outlined,
+                    title: 'Uhakiki wa AI PJ & KYC',
+                    onTap: () {
+                      if (driver != null) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => PjVerificationScreen(driver: driver)),
+                        );
+                      }
+                    },
+                  ),
+                  const Divider(height: 1, indent: 54, endIndent: 16, color: Color(0xFFF1F5F9)),
+                  _buildCleanButton(
+                    icon: Icons.account_balance_wallet_outlined,
+                    title: 'Pochi ya Dereva',
+                    onTap: () => setState(() => _currentIndex = 2),
+                  ),
+                  const Divider(height: 1, indent: 54, endIndent: 16, color: Color(0xFFF1F5F9)),
+                  _buildCleanButton(
+                    icon: Icons.headset_mic_outlined,
+                    title: 'Msaada na Huduma',
+                    onTap: _showSupportBottomSheet,
+                  ),
+                  const Divider(height: 1, indent: 54, endIndent: 16, color: Color(0xFFF1F5F9)),
+                  _buildCleanButton(
+                    icon: Icons.logout_rounded,
+                    title: 'Ondoka Kwenye Akaunti',
+                    onTap: _logout,
+                  ),
+                  const Divider(height: 1, indent: 54, endIndent: 16, color: Color(0xFFF1F5F9)),
+                  _buildCleanButton(
+                    icon: Icons.delete_outline_rounded,
+                    title: 'Futa Akaunti',
+                    isDestructive: true,
+                    onTap: _deleteAccount,
+                  ),
+                ],
+              ),
             ),
 
             const SizedBox(height: 24),
@@ -754,115 +910,49 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
-  Widget _buildAccountMenuButton({
+  Widget _buildCleanButton({
     required IconData icon,
-    required Color iconBg,
-    required Color iconColor,
     required String title,
-    String? subtitle,
-    String? badgeText,
-    Color? badgeColor,
     required VoidCallback onTap,
     bool isDestructive = false,
   }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: isDestructive ? const Color(0xFFFEE2E2) : const Color(0xFFE2E8F0),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: iconBg,
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: Icon(icon, color: iconColor, size: 22),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              title,
-                              style: TextStyle(
-                                fontFamily: 'Segoe UI Variable',
-                                fontSize: 14.5,
-                                fontWeight: FontWeight.w700,
-                                color: isDestructive ? const Color(0xFFEF4444) : const Color(0xFF1E2822),
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (badgeText != null) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: (badgeColor ?? const Color(0xFF4B7B9F)).withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                badgeText,
-                                style: TextStyle(
-                                  fontFamily: 'Segoe UI Variable',
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  color: badgeColor ?? const Color(0xFF4B7B9F),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (subtitle != null && subtitle.isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          subtitle,
-                          style: TextStyle(
-                            fontFamily: 'Segoe UI Variable',
-                            fontSize: 12,
-                            color: isDestructive ? const Color(0xFFF87171) : const Color(0xFF6B7E74),
-                            fontWeight: FontWeight.w500,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Row(
+            children: [
+              // No frame, uncolored monochrome icon
+              Icon(
+                icon,
+                color: isDestructive ? const Color(0xFFEF4444) : const Color(0xFF1E2822),
+                size: 22,
+              ),
+              const SizedBox(width: 14),
+              // Pure button title - NO form or subtitles inside
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontFamily: 'Segoe UI Variable',
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: isDestructive ? const Color(0xFFEF4444) : const Color(0xFF1E2822),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  color: isDestructive ? const Color(0xFFEF4444) : const Color(0xFF94A3B8),
-                  size: 15,
-                ),
-              ],
-            ),
+              ),
+              // Subtle uncolored right arrow
+              Icon(
+                Icons.chevron_right_rounded,
+                color: isDestructive
+                    ? const Color(0xFFEF4444).withValues(alpha: 0.6)
+                    : const Color(0xFF94A3B8),
+                size: 20,
+              ),
+            ],
           ),
         ),
       ),
