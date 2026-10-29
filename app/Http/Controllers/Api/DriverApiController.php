@@ -275,9 +275,12 @@ class DriverApiController extends Controller
      */
     public function topupWallet(Request $request): JsonResponse
     {
+        $rawMethod = strtolower(str_replace([' ', '-', '_'], '', (string) $request->input('payment_method', 'mpesa')));
+        $request->merge(['payment_method' => $rawMethod]);
+
         $validated = $request->validate([
             'phone' => 'required|string',
-            'amount' => 'required|numeric|min:500',
+            'amount' => 'required|numeric|min:100',
             'payment_method' => 'required|string|in:mpesa,tigopesa,airtelmoney,halopesa',
         ]);
 

@@ -17,8 +17,55 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
   List<CargoOrder> _trips = [];
   bool _isProcessingPayment = false;
 
-  String _selectedProvider = 'M-Pesa';
-  double _selectedAmount = 10000.0;
+  String _selectedProvider = 'mpesa';
+  double _selectedAmount = 5000.0;
+
+  final List<Map<String, dynamic>> _providers = [
+    {
+      'id': 'mpesa',
+      'name': 'M-Pesa',
+      'brand': 'Vodacom',
+      'gradient': const LinearGradient(
+        colors: [Color(0xFFE60000), Color(0xFF990000)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      'tag': 'Vodacom Tanzania',
+    },
+    {
+      'id': 'tigopesa',
+      'name': 'Tigo Pesa',
+      'brand': 'Mixx by Yas',
+      'gradient': const LinearGradient(
+        colors: [Color(0xFF00377B), Color(0xFF0056B3)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      'tag': 'Yas Tanzania',
+    },
+    {
+      'id': 'airtelmoney',
+      'name': 'Airtel Money',
+      'brand': 'Airtel',
+      'gradient': const LinearGradient(
+        colors: [Color(0xFFED1C24), Color(0xFF8B0000)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      'tag': 'Airtel Tanzania',
+    },
+    {
+      'id': 'halopesa',
+      'name': 'HaloPesa',
+      'brand': 'Halotel',
+      'gradient': const LinearGradient(
+        colors: [Color(0xFFFF6600), Color(0xFFB84500)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      'tag': 'Halotel Tanzania',
+    },
+  ];
 
   @override
   void initState() {
@@ -27,27 +74,37 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
   }
 
   Future<void> _loadWallet() async {
-    final debt = await SessionManager.getWalletDebt();
-    final locked = await SessionManager.isDebtLimitExceeded();
-    final trips = await SessionManager.getCompletedTrips();
+    try {
+      final debt = await SessionManager.getWalletDebt();
+      final locked = await SessionManager.isDebtLimitExceeded();
+      final trips = await SessionManager.getCompletedTrips();
 
-    if (mounted) {
-      setState(() {
-        _debt = debt;
-        _isLocked = locked;
-        _trips = trips;
-        if (_debt > 0 && _debt < _selectedAmount) {
-          _selectedAmount = _debt;
-        }
-      });
-    }
+      if (mounted) {
+        setState(() {
+          _debt = debt;
+          _isLocked = locked;
+          _trips = trips;
+          if (_debt > 0 && _debt < _selectedAmount) {
+            _selectedAmount = _debt;
+          }
+        });
+      }
+    } catch (_) {}
   }
 
-  void _payCommission() async {
+  String _getProviderDisplayName(String id) {
+    final match = _providers.firstWhere((p) => p['id'] == id, orElse: () => _providers[0]);
+    return match['name'] as String;
+  }
+
+  Future<void> _payCommission() async {
+    if (_selectedAmount <= 0) return;
+
     setState(() => _isProcessingPayment = true);
 
     final driver = await SessionManager.getDriver();
     final phone = driver?.phone ?? '+255 714 882 109';
+    final providerName = _getProviderDisplayName(_selectedProvider);
 
     if (!mounted) return;
 
@@ -57,12 +114,29 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         title: Row(
-          children: const [
-            Icon(Icons.phone_android_rounded, color: Color(0xFF16A34A)),
-            SizedBox(width: 8),
-            Text('USSD Push ya Malipo', style: TextStyle(fontFamily: 'Segoe UI Variable', fontSize: 16, fontWeight: FontWeight.bold)),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFDCFCE7),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.phone_android_rounded, color: Color(0xFF16A34A), size: 22),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'USSD Push ya Malipo',
+                style: TextStyle(
+                  fontFamily: 'Segoe UI Variable',
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1E2822),
+                ),
+              ),
+            ),
           ],
         ),
         content: Column(
@@ -70,15 +144,41 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Ombi la malipo ya TZS ${_selectedAmount.toStringAsFixed(0)} limerushwa kwenye simu yako ($phone) kupitia $_selectedProvider.',
-              style: const TextStyle(fontFamily: 'Segoe UI Variable', fontSize: 13, color: Color(0xFF1E2822)),
+              'Ombi la malipo ya TZS ${_selectedAmount.toStringAsFixed(0)} limerushwa kwenda namba yako ($phone) kupitia $providerName.',
+              style: const TextStyle(
+                fontFamily: 'Segoe UI Variable',
+                fontSize: 13,
+                color: Color(0xFF1E2822),
+                height: 1.4,
+              ),
             ),
-            const SizedBox(height: 12),
-            const Text(
-              'Tafadhali weka namba yako ya siri (PIN) ya mtandao kwenye skrini ya simu yako kukamilisha muamala.',
-              style: TextStyle(fontFamily: 'Segoe UI Variable', fontSize: 12, color: Color(0xFF6B7E74)),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                children: const [
+                  Icon(Icons.lock_outline_rounded, color: Color(0xFF64748B), size: 18),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Tafadhali weka PIN ya mtandao kwenye skrini ya simu yako kukamilisha.',
+                      style: TextStyle(
+                        fontFamily: 'Segoe UI Variable',
+                        fontSize: 12,
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             const Center(
               child: SizedBox(
                 width: 32,
@@ -91,18 +191,21 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
       ),
     );
 
-    // Call payment API
+    // Call Real Laravel Backend API
     final res = await ApiService.initiateWalletPayment(
       phone: phone,
       amount: _selectedAmount,
       paymentMethod: _selectedProvider,
     );
 
-    await Future.delayed(const Duration(milliseconds: 2000));
+    await Future.delayed(const Duration(milliseconds: 1800));
+
+    // Deduct debt locally
     await SessionManager.payWalletDebt(_selectedAmount);
 
     if (!mounted) return;
     Navigator.of(context, rootNavigator: true).pop(); // Dismiss USSD dialog
+
     setState(() => _isProcessingPayment = false);
     await _loadWallet();
 
@@ -110,9 +213,9 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
     HapticFeedback.heavyImpact();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(res['message'] ?? 'Malipo yamekamilika kikamilifu! Deni limepunguzwa.'),
+        content: Text(res['message'] ?? 'Malipo ya TZS ${_selectedAmount.toStringAsFixed(0)} yamekamilika kikamilifu!'),
         backgroundColor: const Color(0xFF16A34A),
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 4),
       ),
     );
   }
@@ -120,392 +223,562 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
   @override
   Widget build(BuildContext context) {
     final double remainingBuffer = (10000.0 - _debt).clamp(0.0, 10000.0);
+    final providerName = _getProviderDisplayName(_selectedProvider);
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        statusBarBrightness: Brightness.light,
-        systemNavigationBarColor: Color(0xFFF2F5F1),
-        systemNavigationBarDividerColor: Colors.transparent,
-        systemNavigationBarIconBrightness: Brightness.dark,
-      ),
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF2F5F1),
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF1E2822)),
-            onPressed: () => Navigator.pop(context),
-          ),
-          title: const Text(
-            'Pochi ya Kamasheni (Driver Wallet)',
-            style: TextStyle(
-              fontFamily: 'Segoe UI Variable',
-              color: Color(0xFF1E2822),
-              fontSize: 17,
-              fontWeight: FontWeight.w900,
-            ),
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2F5F1),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF1E2822)),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
+        title: const Text(
+          'Pochi ya Dereva',
+          style: TextStyle(
+            fontFamily: 'Segoe UI Variable',
+            color: Color(0xFF1E2822),
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
           ),
         ),
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Info Card
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Icon(Icons.info_outline_rounded, color: Color(0xFF4B7B9F), size: 22),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Wateja wanakupa pesa taslimu (Cash) mkononi 100%. Kamasheni ya CARGOO ni 7% tu. Fanya kazi kwa uhuru mpaka deni lifikie ukomo wa TZS 10,000.',
-                          style: TextStyle(
-                            fontFamily: 'Segoe UI Variable',
-                            color: Color(0xFF6B7E74),
-                            fontSize: 12.5,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 18),
-
-                // Debt Meter Card
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: _isLocked ? const Color(0xFFEF4444) : const Color(0xFFE2E8F0),
-                      width: _isLocked ? 1.5 : 1,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.04),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 1. Clean Balance / Debt Card (No clutter)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'SALIO LA DENI LA KAMASHENI (7%)',
-                            style: TextStyle(
-                              fontFamily: 'Segoe UI Variable',
-                              color: Color(0xFF6B7E74),
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: _isLocked ? const Color(0xFFFEF2F2) : const Color(0xFFF0FDF4),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: _isLocked ? const Color(0xFFEF4444) : const Color(0xFF16A34A),
-                              ),
-                            ),
-                            child: Text(
-                              _isLocked ? 'KAZI ZIMEFUNGWA' : 'RUHUSA HAI',
-                              style: TextStyle(
-                                color: _isLocked ? const Color(0xFFEF4444) : const Color(0xFF16A34A),
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(
-                            'TZS ${_debt.toStringAsFixed(0)}',
-                            style: TextStyle(
-                              fontFamily: 'Segoe UI Variable',
-                              color: _isLocked ? const Color(0xFFEF4444) : const Color(0xFF1E2822),
-                              fontSize: 30,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            '/ Ukomo TZS 10,000',
-                            style: TextStyle(
-                              fontFamily: 'Segoe UI Variable',
-                              color: Color(0xFF94A3B8),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: LinearProgressIndicator(
-                          value: (_debt / 10000.0).clamp(0.0, 1.0),
-                          backgroundColor: const Color(0xFFE2E8F0),
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            _isLocked
-                                ? const Color(0xFFEF4444)
-                                : _debt > 7000
-                                    ? const Color(0xFFF59E0B)
-                                    : const Color(0xFF16A34A),
-                          ),
-                          minHeight: 8,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        _isLocked
-                            ? 'Umezidi kiwango cha deni. Lipa sasa ili uweze kupokea kazi tena.'
-                            : 'Bado una nafasi ya kufanya safari zenye thamani ya TZS ${(remainingBuffer / 0.07).toStringAsFixed(0)} bila kufungiwa.',
+                      const Text(
+                        'DENI LA KAMASHENI (7%)',
                         style: TextStyle(
                           fontFamily: 'Segoe UI Variable',
-                          color: _isLocked ? const Color(0xFFEF4444) : const Color(0xFF6B7E74),
-                          fontSize: 12,
+                          color: Color(0xFF64748B),
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _isLocked ? const Color(0xFFFEF2F2) : const Color(0xFFF0FDF4),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _isLocked ? 'KAZI ZIMEFUNGWA ✕' : 'RUHUSA HAI ✓',
+                          style: TextStyle(
+                            fontFamily: 'Segoe UI Variable',
+                            color: _isLocked ? const Color(0xFFEF4444) : const Color(0xFF16A34A),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Payment Section
-                const Text(
-                  'LIPA KAMASHENI (TOP UP / CLEAR DEBT)',
-                  style: TextStyle(
-                    fontFamily: 'Segoe UI Variable',
-                    color: Color(0xFF4B7B9F),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Provider options
-                Row(
-                  children: [
-                    _providerCard('M-Pesa', const Color(0xFFDC2626)),
-                    const SizedBox(width: 10),
-                    _providerCard('Tigo Pesa', const Color(0xFF0284C7)),
-                    const SizedBox(width: 10),
-                    _providerCard('Airtel Money', const Color(0xFFE11D48)),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // Amount Chips
-                Row(
-                  children: [
-                    _amountChip(5000.0),
-                    const SizedBox(width: 10),
-                    _amountChip(10000.0),
-                    const SizedBox(width: 10),
-                    _amountChip(20000.0),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-
-                // Pay Action Button
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: _isProcessingPayment ? null : _payCommission,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF16A34A),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      elevation: 2,
-                    ),
-                    child: _isProcessingPayment
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : Text(
-                            'LIPA TZS ${_selectedAmount.toStringAsFixed(0)} KUPITIA $_selectedProvider',
-                            style: const TextStyle(
-                              fontFamily: 'Segoe UI Variable',
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 14,
-                            ),
-                          ),
-                  ),
-                ),
-
-                const SizedBox(height: 28),
-
-                // Trips History / Ledger
-                const Text(
-                  'HISTORIA YA KAMASHENI ZA SAFARI (7%)',
-                  style: TextStyle(
-                    fontFamily: 'Segoe UI Variable',
-                    color: Color(0xFF1E2822),
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 10),
-
-                if (_trips.isEmpty)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    child: const Center(
-                      child: Text(
-                        'Bado haujakamilisha safari yoyote leo.',
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        'TZS ${_debt.toStringAsFixed(0)}',
+                        style: TextStyle(
+                          fontFamily: 'Segoe UI Variable',
+                          color: _isLocked ? const Color(0xFFEF4444) : const Color(0xFF1E2822),
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        '/ Ukomo TZS 10,000',
                         style: TextStyle(
                           fontFamily: 'Segoe UI Variable',
                           color: Color(0xFF94A3B8),
                           fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ),
-                  )
-                else
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _trips.length,
-                    separatorBuilder: (context, index) => const SizedBox(height: 8),
-                    itemBuilder: (context, idx) {
-                      final t = _trips[idx];
-                      return Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  t.tripId,
-                                  style: const TextStyle(
-                                    fontFamily: 'Segoe UI Variable',
-                                    color: Color(0xFF1E2822),
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13.5,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${t.pickupName} ➔ ${t.dropoffName}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontFamily: 'Segoe UI Variable',
-                                    color: Color(0xFF6B7E74),
-                                    fontSize: 11.5,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  t.fareAmount,
-                                  style: const TextStyle(
-                                    fontFamily: 'Segoe UI Variable',
-                                    color: Color(0xFF16A34A),
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 13.5,
-                                  ),
-                                ),
-                                Text(
-                                  '- TZS ${t.commissionAmount.toStringAsFixed(0)} (7%)',
-                                  style: const TextStyle(
-                                    fontFamily: 'Segoe UI Variable',
-                                    color: Color(0xFFEF4444),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+                    ],
                   ),
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: (_debt / 10000.0).clamp(0.0, 1.0),
+                      backgroundColor: const Color(0xFFF1F5F9),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        _isLocked
+                            ? const Color(0xFFEF4444)
+                            : _debt > 7000
+                                ? const Color(0xFFF59E0B)
+                                : const Color(0xFF16A34A),
+                      ),
+                      minHeight: 7,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _isLocked
+                        ? 'Deni limezidi ukomo. Lipa sasa ili uweze kupokea oda mpya za mizigo.'
+                        : 'Nafasi iliyobaki kabla ya ukomo wa deni: TZS ${remainingBuffer.toStringAsFixed(0)}.',
+                    style: TextStyle(
+                      fontFamily: 'Segoe UI Variable',
+                      color: _isLocked ? const Color(0xFFEF4444) : const Color(0xFF64748B),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
-                const SizedBox(height: 30),
+            const SizedBox(height: 20),
+
+            // 2. Mobile Money Actual Brand Cards
+            const Text(
+              'Chagua Mtandao wa Malipo',
+              style: TextStyle(
+                fontFamily: 'Segoe UI Variable',
+                color: Color(0xFF1E2822),
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            SizedBox(
+              height: 120,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _providers.length,
+                itemBuilder: (context, idx) {
+                  final p = _providers[idx];
+                  final isSelected = _selectedProvider == p['id'];
+                  return GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _selectedProvider = p['id'] as String);
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      width: 170,
+                      margin: const EdgeInsets.only(right: 12),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        gradient: p['gradient'] as LinearGradient,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: isSelected ? Colors.white : Colors.transparent,
+                          width: 2.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: isSelected
+                                ? (p['gradient'] as LinearGradient).colors.first.withValues(alpha: 0.4)
+                                : Colors.black.withValues(alpha: 0.08),
+                            blurRadius: isSelected ? 10 : 4,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _buildCardLogo(p['id'] as String),
+                              if (isSelected)
+                                Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.check,
+                                    size: 11,
+                                    color: (p['gradient'] as LinearGradient).colors.first,
+                                  ),
+                                )
+                              else
+                                Icon(
+                                  Icons.contactless_rounded,
+                                  size: 16,
+                                  color: Colors.white.withValues(alpha: 0.6),
+                                ),
+                            ],
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                p['name'] as String,
+                                style: const TextStyle(
+                                  fontFamily: 'Segoe UI Variable',
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                p['tag'] as String,
+                                style: TextStyle(
+                                  fontFamily: 'Segoe UI Variable',
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            // 3. Amount Selector Pills
+            const Text(
+              'Chagua Kiasi cha Kulipa',
+              style: TextStyle(
+                fontFamily: 'Segoe UI Variable',
+                color: Color(0xFF1E2822),
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            Row(
+              children: [
+                _buildAmountPill(2000.0),
+                const SizedBox(width: 8),
+                _buildAmountPill(5000.0),
+                const SizedBox(width: 8),
+                _buildAmountPill(10000.0),
+                if (_debt > 0) ...[
+                  const SizedBox(width: 8),
+                  _buildDebtFullPill(),
+                ],
               ],
             ),
-          ),
+
+            const SizedBox(height: 20),
+
+            // 4. Pay Action Button
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _isProcessingPayment ? null : _payCommission,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF16A34A),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                ),
+                child: _isProcessingPayment
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.flash_on_rounded, color: Colors.white, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'LIPA TZS ${_selectedAmount.toStringAsFixed(0)} KUPITIA $providerName',
+                            style: const TextStyle(
+                              fontFamily: 'Segoe UI Variable',
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13.5,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // 5. Minimalist Recent Ledger
+            const Text(
+              'Historia ya Miamala',
+              style: TextStyle(
+                fontFamily: 'Segoe UI Variable',
+                color: Color(0xFF1E2822),
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            if (_trips.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Center(
+                  child: Text(
+                    'Hakuna miamala ya kamasheni iliyorekodiwa leo.',
+                    style: TextStyle(
+                      fontFamily: 'Segoe UI Variable',
+                      color: Color(0xFF94A3B8),
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              )
+            else
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _trips.take(4).length,
+                  separatorBuilder: (context, index) => const Divider(
+                    height: 1,
+                    indent: 16,
+                    endIndent: 16,
+                    color: Color(0xFFF1F5F9),
+                  ),
+                  itemBuilder: (context, idx) {
+                    final t = _trips[idx];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                t.tripId,
+                                style: const TextStyle(
+                                  fontFamily: 'Segoe UI Variable',
+                                  color: Color(0xFF1E2822),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Nauli: ${t.fareAmount}',
+                                style: const TextStyle(
+                                  fontFamily: 'Segoe UI Variable',
+                                  color: Color(0xFF64748B),
+                                  fontSize: 11.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            '- TZS ${t.commissionAmount.toStringAsFixed(0)} (7%)',
+                            style: const TextStyle(
+                              fontFamily: 'Segoe UI Variable',
+                              color: Color(0xFFEF4444),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+            const SizedBox(height: 30),
+          ],
         ),
       ),
     );
   }
 
-  Widget _providerCard(String name, Color color) {
-    final isSelected = _selectedProvider == name;
+  Widget _buildCardLogo(String providerId) {
+    switch (providerId) {
+      case 'mpesa':
+        return Row(
+          children: [
+            Container(
+              width: 20,
+              height: 20,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFFE60000), size: 10),
+              ),
+            ),
+            const SizedBox(width: 5),
+            const Text(
+              'M-PESA',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 13,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        );
+      case 'tigopesa':
+        return Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00377B),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: const Color(0xFFFACC15), width: 1.2),
+              ),
+              child: const Text(
+                'tigo',
+                style: TextStyle(
+                  color: Color(0xFFFACC15),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Text(
+              'pesa',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 12.5,
+              ),
+            ),
+          ],
+        );
+      case 'airtelmoney':
+        return Row(
+          children: [
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Center(
+                child: Text(
+                  'a',
+                  style: TextStyle(
+                    color: Color(0xFFED1C24),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Text(
+              'airtel',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        );
+      case 'halopesa':
+      default:
+        return Row(
+          children: [
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Center(
+                child: Text(
+                  'H',
+                  style: TextStyle(
+                    color: Color(0xFFFF6600),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Text(
+              'halopesa',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        );
+    }
+  }
+
+  Widget _buildAmountPill(double amt) {
+    final isSelected = _selectedAmount == amt;
     return Expanded(
       child: InkWell(
-        onTap: () => setState(() => _selectedProvider = name),
-        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          setState(() => _selectedAmount = amt);
+        },
+        borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: isSelected ? color : const Color(0xFFE2E8F0),
-              width: isSelected ? 2 : 1,
-            ),
+            color: isSelected ? const Color(0xFF16A34A) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Center(
             child: Text(
-              name,
+              '${(amt / 1000).toStringAsFixed(0)}k',
               style: TextStyle(
                 fontFamily: 'Segoe UI Variable',
-                color: isSelected ? color : const Color(0xFF6B7E74),
-                fontWeight: FontWeight.bold,
-                fontSize: 12.5,
+                color: isSelected ? Colors.white : const Color(0xFF1E2822),
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
               ),
             ),
           ),
@@ -514,27 +787,29 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
     );
   }
 
-  Widget _amountChip(double amt) {
-    final isSelected = _selectedAmount == amt;
+  Widget _buildDebtFullPill() {
+    final isSelected = _selectedAmount == _debt;
     return Expanded(
       child: InkWell(
-        onTap: () => setState(() => _selectedAmount = amt),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          setState(() => _selectedAmount = _debt);
+        },
         borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: isSelected ? const Color(0xFF16A34A) : Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: isSelected ? const Color(0xFF16A34A) : const Color(0xFFCBD5E1)),
           ),
           child: Center(
             child: Text(
-              '${(amt / 1000).toStringAsFixed(0)}k TZS',
+              'Deni (${(_debt / 1000).toStringAsFixed(1)}k)',
               style: TextStyle(
                 fontFamily: 'Segoe UI Variable',
                 color: isSelected ? Colors.white : const Color(0xFF1E2822),
-                fontWeight: FontWeight.bold,
-                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                fontSize: 11.5,
               ),
             ),
           ),
