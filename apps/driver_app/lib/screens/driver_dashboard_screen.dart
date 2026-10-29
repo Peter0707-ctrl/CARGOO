@@ -72,6 +72,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     });
 
     if (_isOnline) {
+      if (driver != null) {
+        ApiService.updateDriverStatus(
+          phone: driver.phone,
+          name: driver.name,
+          isOnline: true,
+          lat: _currentLocation.latitude,
+          lng: _currentLocation.longitude,
+          vehicleType: driver.vehicleType,
+          vehiclePlate: driver.vehiclePlate,
+        );
+      }
       _startStandbyForOrders();
     }
   }
@@ -112,6 +123,20 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
       _isOnline = value;
     });
     await SessionManager.setOnline(value);
+
+    // Sync online state with CARGOO dispatch server
+    final driver = _driver ?? await SessionManager.getDriver();
+    if (driver != null) {
+      ApiService.updateDriverStatus(
+        phone: driver.phone,
+        name: driver.name,
+        isOnline: value,
+        lat: _currentLocation.latitude,
+        lng: _currentLocation.longitude,
+        vehicleType: driver.vehicleType,
+        vehiclePlate: driver.vehiclePlate,
+      );
+    }
 
     if (!mounted) return;
 

@@ -25,6 +25,13 @@ class User extends Authenticatable
         'otp_expires_at',
         'is_verified',
         'avatar_url',
+        'vehicle_type',
+        'vehicle_plate',
+        'license_number',
+        'is_online',
+        'current_lat',
+        'current_lng',
+        'rating',
     ];
 
     protected $hidden = [

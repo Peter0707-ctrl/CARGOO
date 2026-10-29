@@ -1513,37 +1513,22 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
 
     final tripId = 'CRG-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
     
-    // Dynamic vehicle details matching real selected fleet
+    // Real vehicle details matching user selection
     final vehicleName = selectedVehicle['name']?.toString() ?? 'Cargo Truck';
     final vehicleId = selectedVehicle['id']?.toString() ?? 'kirikuu';
-    final randNum = 100 + (tripId.hashCode.abs() % 899);
-    final letters = ['ABC', 'DXA', 'EBT', 'DTG', 'CKM', 'DFJ', 'ENZ', 'FBL', 'HKA'];
-    final randLetters = letters[tripId.hashCode.abs() % letters.length];
-    final plateNumber = vehicleId == 'guta'
-        ? 'MC$randNum$randLetters'
-        : 'T $randNum $randLetters';
-
-    final driverNames = [
-      'Kassim Mrope', 'Salum Kibada', 'Hassan Mwinyi', 
-      'Rashid Mchopa', 'Omari Mkude', 'Baraka Mgaya', 
-      'Emmanuel Msigwa', 'Godfrey Mremi', 'Said Mtambo'
-    ];
-    final driverName = driverNames[tripId.hashCode.abs() % driverNames.length];
-    final vehicleColors = ['White', 'Silver', 'Blue', 'Yellow', 'Black'];
-    final driverVehicle = '${vehicleColors[tripId.hashCode.abs() % vehicleColors.length]} · $vehicleName';
-    final driverPhone = '+255 7${(10 + (tripId.hashCode.abs() % 89))} ${(100 + (tripId.hashCode.abs() % 899))} ${(100 + ((tripId.hashCode.abs() ~/ 10) % 899))}';
 
     final bool isScheduled = widget.scheduledFor != null && widget.scheduledFor!.trim().isNotEmpty;
 
+    // Real dispatch order: NO fake hardcoded driver info!
     final bookedTrip = {
       'id': tripId,
       'customerName': customerName,
       'customerPhone': customerPhone,
       'customerAvatar': customerAvatar,
       'customerNida': customerNida,
-      'vehicle': selectedVehicle['name'],
-      'vehicleId': selectedVehicle['id'],
-      'driverVehicle': driverVehicle,
+      'vehicle': vehicleName,
+      'vehicleId': vehicleId,
+      'driverVehicle': vehicleName,
       'fare': selectedVehicle['price'],
       'pickup': _currentPickupName,
       'pickupLat': _currentPickupLatLng.latitude,
@@ -1564,10 +1549,10 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
       'notes': _cargoNotes,
       'is_active': !isScheduled,
       'vehicleIndex': _selectedVehicleIndex ?? 0,
-      'status': isScheduled ? 'Scheduled' : 'Driver Dispatched',
-      'driverName': driverName,
-      'driverPhone': driverPhone,
-      'plateNumber': plateNumber,
+      'status': isScheduled ? 'Scheduled' : 'searching',
+      'driverName': '',
+      'driverPhone': '',
+      'plateNumber': '',
       'timestamp': DateTime.now().toIso8601String(),
     };
 
@@ -1595,8 +1580,8 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
         'dropoff_lat': _currentDropoffLatLng.latitude,
         'dropoff_lng': _currentDropoffLatLng.longitude,
         'stops': _intermediateStops,
-        'vehicle_type': selectedVehicle['name'],
-        'vehicle_id': selectedVehicle['id'],
+        'vehicle_type': vehicleName,
+        'vehicle_id': vehicleId,
         'fare_amount': selectedVehicle['price'],
         'distance_km': _distanceKm.toStringAsFixed(1),
         'duration_minutes': _durationMinutes,
@@ -1604,17 +1589,13 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
         'payment_method': _paymentMethod,
         'is_scheduled': isScheduled,
         'scheduled_for': widget.scheduledFor ?? '',
-        'driver_name': driverName,
-        'driver_phone': driverPhone,
-        'driver_plate': plateNumber,
-        'status': isScheduled ? 'Scheduled' : 'Driver Dispatched',
+        'driver_name': null,
+        'driver_phone': null,
+        'driver_plate': null,
+        'status': isScheduled ? 'Scheduled' : 'searching',
       };
 
-      await http.post(
-        Uri.parse('${ApiService.baseUrl}/orders'),
-        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-        body: jsonEncode(orderPayload),
-      ).timeout(const Duration(seconds: 4));
+      await ApiService.createOrder(orderPayload);
     } catch (e) {
       debugPrint('Driver dispatch notification: $e');
     }
@@ -1715,21 +1696,53 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
       );
     } catch (_) {}
 
+    _startRealDriverStatusPoller(tripId);
+  }
+
+  void _startRealDriverStatusPoller(String tripId) {
     _driverWaitTimer?.cancel();
-    _driverWaitTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted && _bookingStage == BookingStage.waitingForDriver) {
-        setState(() {
-          _bookingStage = BookingStage.driverAccepted;
-        });
-        _startDriverMotionSimulation();
-        WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
-        try {
-          _sheetController.animateTo(
-            0.65,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        } catch (_) {}
+    _driverWaitTimer = Timer.periodic(const Duration(milliseconds: 2200), (timer) async {
+      if (!mounted || _bookingStage != BookingStage.waitingForDriver) {
+        timer.cancel();
+        return;
+      }
+
+      final order = await ApiService.fetchOrder(tripId);
+      if (order != null && mounted && _bookingStage == BookingStage.waitingForDriver) {
+        final status = (order['status'] ?? '').toString().toLowerCase();
+        final driverName = (order['driver_name'] ?? '').toString().trim();
+        final driverPhone = (order['driver_phone'] ?? '').toString().trim();
+        final driverPlate = (order['driver_plate'] ?? '').toString().trim();
+
+        if ((status == 'accepted' || status == 'driver_assigned' || status == 'en_route') && driverName.isNotEmpty) {
+          timer.cancel();
+
+          final updatedTrip = Map<String, dynamic>.from(_assignedTrip ?? {});
+          updatedTrip['driverName'] = driverName;
+          updatedTrip['driverPhone'] = driverPhone;
+          updatedTrip['plateNumber'] = driverPlate;
+          updatedTrip['status'] = 'accepted';
+
+          await SessionManager.saveActiveTrip(updatedTrip);
+          await SessionManager.saveBookedTrip(updatedTrip);
+
+          if (!mounted) return;
+          setState(() {
+            _assignedTrip = updatedTrip;
+            _bookingStage = BookingStage.driverAccepted;
+          });
+
+          HapticFeedback.heavyImpact();
+          _startDriverMotionSimulation();
+          WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteBounds());
+          try {
+            _sheetController.animateTo(
+              0.65,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          } catch (_) {}
+        }
       }
     });
   }
@@ -2444,9 +2457,23 @@ class _MapRouteScreenState extends State<MapRouteScreen> with TickerProviderStat
 
               // Cancel ride
               GestureDetector(
-                onTap: () {
+                onTap: () async {
                   _driverWaitTimer?.cancel();
+                  final tripId = _assignedTrip?['id']?.toString() ?? '';
+                  if (tripId.isNotEmpty) {
+                    ApiService.cancelOrder(tripId);
+                  }
+                  await SessionManager.clearActiveTrip();
+                  if (!mounted) return;
                   setState(() => _bookingStage = BookingStage.vehicleSelection);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Maombi ya dereva yameghairiwa.'),
+                      backgroundColor: Color(0xFF64748B),
+                      behavior: SnackBarBehavior.floating,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
                 },
                 child: Column(
                   children: [

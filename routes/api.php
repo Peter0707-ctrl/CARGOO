@@ -24,6 +24,7 @@ Route::prefix('v1')->group(function () {
 
         // Dedicated Driver App Endpoints
         Route::prefix('driver')->group(function () {
+            Route::post('/status', [\App\Http\Controllers\Api\DriverApiController::class, 'updateStatus']);
             Route::get('/orders/pending', [\App\Http\Controllers\Api\DriverApiController::class, 'getPendingOrders']);
             Route::post('/orders/{trip_id}/accept', [\App\Http\Controllers\Api\DriverApiController::class, 'acceptOrder']);
             Route::post('/orders/{trip_id}/decline', [\App\Http\Controllers\Api\DriverApiController::class, 'declineOrder']);

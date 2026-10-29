@@ -13,6 +13,72 @@ use Illuminate\Support\Facades\Log;
 class DriverApiController extends Controller
 {
     /**
+     * Update Driver Online / Standby / Location status.
+     */
+    public function updateStatus(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'phone' => 'required|string',
+            'name' => 'nullable|string',
+            'is_online' => 'required|boolean',
+            'lat' => 'nullable|numeric',
+            'lng' => 'nullable|numeric',
+            'vehicle_type' => 'nullable|string',
+            'vehicle_plate' => 'nullable|string',
+        ]);
+
+        $rawPhone = preg_replace('/[^0-9]/', '', $validated['phone']);
+        $formattedPhone = str_starts_with($rawPhone, '255') ? '+' . $rawPhone : '+255' . ltrim($rawPhone, '0');
+
+        $driver = User::where('phone', $formattedPhone)->first();
+        if (!$driver) {
+            $driver = new User();
+            $driver->phone = $formattedPhone;
+            $driver->role = 'driver';
+            $driver->is_verified = true;
+        }
+
+        if (!empty($validated['name'])) {
+            $driver->name = $validated['name'];
+        }
+        $driver->is_online = (bool) $validated['is_online'];
+        if (isset($validated['lat'])) $driver->current_lat = $validated['lat'];
+        if (isset($validated['lng'])) $driver->current_lng = $validated['lng'];
+        if (!empty($validated['vehicle_type'])) $driver->vehicle_type = $validated['vehicle_type'];
+        if (!empty($validated['vehicle_plate'])) $driver->vehicle_plate = strtoupper($validated['vehicle_plate']);
+        $driver->save();
+
+        $pool = Cache::get('active_drivers_pool', []);
+        if ($driver->is_online) {
+            $pool[$formattedPhone] = [
+                'name' => $driver->name ?? 'Dereva wa CARGOO',
+                'phone' => $formattedPhone,
+                'vehicle_type' => $driver->vehicle_type ?? 'Kirikuu Pick-up',
+                'vehicle_plate' => $driver->vehicle_plate ?? 'T 482 DWK',
+                'rating' => (float) ($driver->rating ?? 5.0),
+                'lat' => (float) ($driver->current_lat ?? -6.7715),
+                'lng' => (float) ($driver->current_lng ?? 39.2399),
+                'updated_at' => now()->toIso8601String(),
+            ];
+        } else {
+            unset($pool[$formattedPhone]);
+        }
+        Cache::forever('active_drivers_pool', $pool);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $driver->is_online ? 'Uko hewani (online)' : 'Uko mapumzikoni (offline)',
+            'driver' => [
+                'name' => $driver->name,
+                'phone' => $driver->phone,
+                'is_online' => (bool) $driver->is_online,
+                'vehicle_type' => $driver->vehicle_type,
+                'vehicle_plate' => $driver->vehicle_plate,
+            ],
+        ]);
+    }
+
+    /**
      * Get pending orders within 5km radius matching driver vehicle type.
      * Respects dispatch rule: only orders within 5km from pickup location.
      */

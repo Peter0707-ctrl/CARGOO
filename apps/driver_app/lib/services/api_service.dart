@@ -126,6 +126,35 @@ class ApiService {
     return [];
   }
 
+  /// Driver Online / Location Status Heartbeat
+  static Future<void> updateDriverStatus({
+    required String phone,
+    String? name,
+    required bool isOnline,
+    double? lat,
+    double? lng,
+    String? vehicleType,
+    String? vehiclePlate,
+  }) async {
+    try {
+      final payload = <String, dynamic>{
+        'phone': phone,
+        'is_online': isOnline,
+      };
+      if (name != null) payload['name'] = name;
+      if (lat != null) payload['lat'] = lat;
+      if (lng != null) payload['lng'] = lng;
+      if (vehicleType != null) payload['vehicle_type'] = vehicleType;
+      if (vehiclePlate != null) payload['vehicle_plate'] = vehiclePlate;
+
+      await _requestWithFallback(
+        'POST',
+        '/driver/status',
+        body: payload,
+      );
+    } catch (_) {}
+  }
+
   /// Driver accepts an order
   static Future<bool> acceptOrder({
     required String tripId,

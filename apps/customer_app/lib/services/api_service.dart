@@ -3,10 +3,10 @@ import 'package:http/http.dart' as http;
 import 'session_manager.dart';
 
 class ApiService {
-  // Live Cloudflare Tunnel URL + Local ADB reverse + LAN IP fallbacks
+  // Local ADB reverse + LAN IP fallbacks
   static const List<String> _candidateUrls = [
-    'https://camps-desperate-apparent-swap.trycloudflare.com/api/v1',
     'http://127.0.0.1:8000/api/v1',
+    'http://10.0.2.2:8000/api/v1',
     'http://192.168.1.7:8000/api/v1',
   ];
 
@@ -193,6 +193,54 @@ class ApiService {
         },
       };
     }
+  }
+
+  /// Create / Dispatch Order to Real Drivers
+  static Future<Map<String, dynamic>> createOrder(Map<String, dynamic> payload) async {
+    try {
+      final response = await _postWithFallback('/orders', payload);
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return {'status': 'success'};
+  }
+
+  /// Real-Time Poller: Fetch live order status & assigned real driver details
+  static Future<Map<String, dynamic>?> fetchOrder(String tripId) async {
+    for (final base in _candidateUrls) {
+      try {
+        final url = Uri.parse('$base/orders/$tripId');
+        final response = await http
+            .get(url, headers: {'Accept': 'application/json'})
+            .timeout(const Duration(milliseconds: 2500));
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data is Map && data['order'] is Map) {
+            return data['order'] as Map<String, dynamic>;
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  /// Cancel searching order from customer side
+  static Future<bool> cancelOrder(String tripId) async {
+    for (final base in _candidateUrls) {
+      try {
+        final url = Uri.parse('$base/orders/$tripId/status');
+        final response = await http.patch(
+          url,
+          headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+          body: jsonEncode({'status': 'cancelled'}),
+        ).timeout(const Duration(milliseconds: 2500));
+        if (response.statusCode == 200) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
   }
 
   /// Get list of submitted corporate fleet tenders

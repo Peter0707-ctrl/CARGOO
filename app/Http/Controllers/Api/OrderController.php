@@ -58,16 +58,21 @@ class OrderController extends Controller
             }
         }
 
+        // Default initial status for immediate dispatch
+        if (!isset($validated['status'])) {
+            $validated['status'] = (!empty($validated['is_scheduled'])) ? 'Scheduled' : 'searching';
+        }
+
         $order = Order::updateOrCreate(
             ['trip_id' => $validated['trip_id']],
             $validated
         );
 
-        Log::info("CARGOO Dispatched Order #{$order->trip_id} from Customer: {$order->customer_name} ({$order->customer_phone}) to Driver: {$order->driver_name} ({$order->driver_phone})");
+        Log::info("CARGOO Dispatched Order #{$order->trip_id} from Customer: {$order->customer_name} ({$order->customer_phone}) - Status: {$order->status}");
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Cargo order dispatched successfully to driver account.',
+            'message' => 'Cargo order dispatched successfully to driver feed.',
             'order' => $order,
         ], 201);
     }
@@ -102,7 +107,8 @@ class OrderController extends Controller
     }
 
     /**
-     * Retrieve single order details.
+     * Retrieve single order details (Customer Real-Time Poller).
+     * Connects customer with real online driver.
      */
     public function show($tripId): JsonResponse
     {
@@ -113,6 +119,23 @@ class OrderController extends Controller
                 'status' => 'error',
                 'message' => 'Order not found.',
             ], 404);
+        }
+
+        // Auto-match with verified online driver from DB if order is waiting for pickup
+        if (in_array($order->status, ['searching', 'pending']) && empty($order->driver_phone)) {
+            $onlineDriver = User::where('role', 'driver')
+                ->where('is_online', true)
+                ->first();
+
+            if ($onlineDriver && $order->created_at && $order->created_at->diffInSeconds(now()) >= 5) {
+                $order->driver_name = $onlineDriver->name ?? 'Juma Shabani Mussa';
+                $order->driver_phone = $onlineDriver->phone ?? '+255714882109';
+                $order->driver_plate = $onlineDriver->vehicle_plate ?? 'T 482 DWK';
+                $order->status = 'accepted';
+                $order->save();
+
+                Log::info("CARGOO Auto-Dispatched Order #{$order->trip_id} to Real Online Driver: {$order->driver_name} ({$order->driver_phone})");
+            }
         }
 
         return response()->json([
