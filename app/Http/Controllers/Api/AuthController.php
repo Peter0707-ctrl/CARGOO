@@ -76,6 +76,40 @@ class AuthController extends Controller
         $message = "CARGOO: Namba yako ya uthibitisho (OTP) ni {$otp}. Inatumika kwa dakika 10. Usitoe namba hii kwa mtu yeyote.";
         $cleanPhone = ltrim($phone, '+');
 
+        // 0. Beem Africa SMS Gateway (Tanzania Primary Carrier)
+        $beemApiKey = env('BEEM_API_KEY');
+        $beemSecretKey = env('BEEM_SECRET_KEY');
+        $beemSender = env('BEEM_SENDER_NAME', 'Tukio360');
+
+        if (!empty($beemApiKey) && !empty($beemSecretKey)) {
+            try {
+                $auth = base64_encode("{$beemApiKey}:{$beemSecretKey}");
+                $payload = [
+                    'source_addr' => $beemSender,
+                    'schedule_time' => '',
+                    'encoding' => 0,
+                    'message' => $message,
+                    'recipients' => [
+                        [
+                            'recipient_id' => 1,
+                            'dest_addr' => $cleanPhone,
+                        ]
+                    ]
+                ];
+
+                $response = Http::withHeaders([
+                    'Authorization' => "Basic {$auth}",
+                    'Content-Type' => 'application/json',
+                ])
+                ->timeout(5)
+                ->post('https://apisms.beem.africa/v1/send', $payload);
+
+                Log::info("Beem Africa SMS dispatch to {$cleanPhone}: HTTP " . $response->status() . " Body: " . $response->body());
+            } catch (\Throwable $e) {
+                Log::warning("Beem Africa SMS dispatch error: " . $e->getMessage());
+            }
+        }
+
         // 1. Africa's Talking SMS Gateway
         $atApiKey = env('AFRICASTALKING_API_KEY');
         $atUsername = env('AFRICASTALKING_USERNAME', 'sandbox');

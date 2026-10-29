@@ -11,6 +11,18 @@ class SessionManager {
   static const String _keyActiveTrip = 'cargoo_driver_active_trip';
   static const String _keyTripHistory = 'cargoo_driver_trip_history';
   static const String _keyToken = 'cargoo_driver_token';
+  static const String _keyLanguage = 'cargoo_app_language';
+
+  // Language Preference (Kiswahili / English)
+  static Future<String> getLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyLanguage) ?? 'sw';
+  }
+
+  static Future<void> setLanguage(String lang) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyLanguage, lang);
+  }
 
   // Maximum commission debt limit before app locks
   static const double maxDebtLimit = 10000.0;

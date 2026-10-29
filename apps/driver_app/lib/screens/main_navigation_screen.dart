@@ -27,6 +27,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   late int _currentIndex;
   DriverModel? _driver;
   List<CargoOrder> _completedTrips = [];
+  String _language = 'sw';
 
   @override
   void initState() {
@@ -38,11 +39,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   Future<void> _loadState() async {
     final driver = await SessionManager.getDriver();
     final trips = await SessionManager.getCompletedTrips();
+    final lang = await SessionManager.getLanguage();
 
     if (mounted) {
       setState(() {
         _driver = driver;
         _completedTrips = trips;
+        _language = lang;
       });
     }
   }
@@ -882,6 +885,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   ),
                   const Divider(height: 1, indent: 54, endIndent: 16, color: Color(0xFFF1F5F9)),
                   _buildCleanButton(
+                    icon: Icons.language_rounded,
+                    title: _language == 'en' ? 'Lugha / Language (English)' : 'Lugha / Language (Kiswahili)',
+                    onTap: _showLanguageSelector,
+                  ),
+                  const Divider(height: 1, indent: 54, endIndent: 16, color: Color(0xFFF1F5F9)),
+                  _buildCleanButton(
                     icon: Icons.headset_mic_outlined,
                     title: 'Msaada na Huduma',
                     onTap: _showSupportBottomSheet,
@@ -952,6 +961,130 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     : const Color(0xFF94A3B8),
                 size: 20,
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLanguageSelector() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFCBD5E1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: const [
+                  Icon(Icons.language_rounded, color: Color(0xFF1E2822), size: 24),
+                  SizedBox(width: 10),
+                  Text(
+                    'Chagua Lugha / Select Language',
+                    style: TextStyle(
+                      fontFamily: 'Segoe UI Variable',
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF1E2822),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(
+                    color: _language == 'sw' ? const Color(0xFF16A34A) : const Color(0xFFE2E8F0),
+                    width: _language == 'sw' ? 1.5 : 1.0,
+                  ),
+                ),
+                tileColor: _language == 'sw' ? const Color(0xFFF0FDF4) : Colors.transparent,
+                leading: const Text('🇹🇿', style: TextStyle(fontSize: 24)),
+                title: const Text(
+                  'Kiswahili (Tanzania)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E2822)),
+                ),
+                subtitle: const Text('Lugha ya Kiswahili (Chaguo-msingi)', style: TextStyle(fontSize: 12, color: Color(0xFF6B7E74))),
+                trailing: _language == 'sw'
+                    ? const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 22)
+                    : null,
+                onTap: () async {
+                  await SessionManager.setLanguage('sw');
+                  if (mounted) {
+                    setState(() => _language = 'sw');
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Lugha imebadilishwa kuwa Kiswahili'),
+                        backgroundColor: Color(0xFF16A34A),
+                        behavior: SnackBarBehavior.floating,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 10),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(
+                    color: _language == 'en' ? const Color(0xFF16A34A) : const Color(0xFFE2E8F0),
+                    width: _language == 'en' ? 1.5 : 1.0,
+                  ),
+                ),
+                tileColor: _language == 'en' ? const Color(0xFFF0FDF4) : Colors.transparent,
+                leading: const Text('🇬🇧', style: TextStyle(fontSize: 24)),
+                title: const Text(
+                  'English (UK / US)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E2822)),
+                ),
+                subtitle: const Text('English Language', style: TextStyle(fontSize: 12, color: Color(0xFF6B7E74))),
+                trailing: _language == 'en'
+                    ? const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 22)
+                    : null,
+                onTap: () async {
+                  await SessionManager.setLanguage('en');
+                  if (mounted) {
+                    setState(() => _language = 'en');
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Language changed to English'),
+                        backgroundColor: Color(0xFF16A34A),
+                        behavior: SnackBarBehavior.floating,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 14),
             ],
           ),
         ),

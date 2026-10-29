@@ -35,6 +35,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   LatLng _currentLatLng = const LatLng(-6.7715, 39.2399);
 
   // Settings preferences
+  String _language = 'sw';
   bool _pushNotificationsEnabled = true;
   bool _smsReceiptsEnabled = true;
 
@@ -78,9 +79,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   Future<void> _loadUserSession() async {
+    final lang = await SessionManager.getLanguage();
     if (_userData == null) {
       final savedUser = await SessionManager.getUser();
-      if (mounted) setState(() => _userData = savedUser);
+      if (mounted) {
+        setState(() {
+          _userData = savedUser;
+          _language = lang;
+        });
+      }
+    } else {
+      if (mounted) setState(() => _language = lang);
     }
   }
 
@@ -860,6 +869,132 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
+  void _showLanguageSelectorModal(BuildContext rootContext, [ValueChanged<String>? onSelected]) {
+    showModalBottomSheet(
+      context: rootContext,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFCBD5E1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: const [
+                  Icon(Icons.language_rounded, color: Color(0xFF1E2822), size: 24),
+                  SizedBox(width: 10),
+                  Text(
+                    'Chagua Lugha / Select Language',
+                    style: TextStyle(
+                      fontFamily: 'Segoe UI Variable',
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF1E2822),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(
+                    color: _language == 'sw' ? const Color(0xFF4B7B9F) : const Color(0xFFE2E8F0),
+                    width: _language == 'sw' ? 1.5 : 1.0,
+                  ),
+                ),
+                tileColor: _language == 'sw' ? const Color(0xFFF0F9FF) : Colors.transparent,
+                leading: const Text('🇹🇿', style: TextStyle(fontSize: 24)),
+                title: const Text(
+                  'Kiswahili (Tanzania)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E2822)),
+                ),
+                subtitle: const Text('Lugha ya Kiswahili (Chaguo-msingi)', style: TextStyle(fontSize: 12, color: Color(0xFF6B7E74))),
+                trailing: _language == 'sw'
+                    ? const Icon(Icons.check_circle_rounded, color: Color(0xFF4B7B9F), size: 22)
+                    : null,
+                onTap: () async {
+                  await SessionManager.setLanguage('sw');
+                  if (mounted) {
+                    setState(() => _language = 'sw');
+                  }
+                  onSelected?.call('sw');
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (rootContext.mounted) {
+                    ScaffoldMessenger.of(rootContext).showSnackBar(
+                      const SnackBar(
+                        content: Text('Lugha imebadilishwa kuwa Kiswahili'),
+                        backgroundColor: Color(0xFF4B7B9F),
+                        behavior: SnackBarBehavior.floating,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 10),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(
+                    color: _language == 'en' ? const Color(0xFF4B7B9F) : const Color(0xFFE2E8F0),
+                    width: _language == 'en' ? 1.5 : 1.0,
+                  ),
+                ),
+                tileColor: _language == 'en' ? const Color(0xFFF0F9FF) : Colors.transparent,
+                leading: const Text('🇬🇧', style: TextStyle(fontSize: 24)),
+                title: const Text(
+                  'English (UK / US)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1E2822)),
+                ),
+                subtitle: const Text('English Language', style: TextStyle(fontSize: 12, color: Color(0xFF6B7E74))),
+                trailing: _language == 'en'
+                    ? const Icon(Icons.check_circle_rounded, color: Color(0xFF4B7B9F), size: 22)
+                    : null,
+                onTap: () async {
+                  await SessionManager.setLanguage('en');
+                  if (mounted) {
+                    setState(() => _language = 'en');
+                  }
+                  onSelected?.call('en');
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  if (rootContext.mounted) {
+                    ScaffoldMessenger.of(rootContext).showSnackBar(
+                      const SnackBar(
+                        content: Text('Language changed to English'),
+                        backgroundColor: Color(0xFF4B7B9F),
+                        behavior: SnackBarBehavior.floating,
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 14),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showAppSettingsSheet() {
     showModalBottomSheet(
       context: context,
@@ -887,9 +1022,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.language_rounded, color: Color(0xFF4B7B9F)),
-                    title: const Text('Language', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-                    subtitle: const Text('English (Default)', style: TextStyle(fontSize: 12, color: Color(0xFF6B7E74))),
-                    trailing: const Icon(Icons.lock_outline_rounded, size: 18, color: Color(0xFF94A3B8)),
+                    title: const Text('Language / Lugha', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                    subtitle: Text(
+                      _language == 'sw' ? '🇹🇿 Kiswahili (Chaguo-msingi)' : '🇬🇧 English',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF6B7E74), fontWeight: FontWeight.w600),
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded, size: 20, color: Color(0xFF94A3B8)),
+                    onTap: () {
+                      _showLanguageSelectorModal(context, (newLang) {
+                        setSheetState(() => _language = newLang);
+                        setState(() => _language = newLang);
+                      });
+                    },
                   ),
                   const Divider(height: 1),
                   SwitchListTile(
@@ -4231,6 +4375,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             title: 'Profile Settings',
             subtitle: 'Change profile picture, name, and contact details',
             onTap: _openProfileSettings,
+          ),
+          _buildAccountMenuOption(
+            icon: Icons.language_rounded,
+            title: _language == 'en' ? 'Lugha / Language (English)' : 'Lugha / Language (Kiswahili)',
+            subtitle: _language == 'en' ? 'Switch between English and Kiswahili' : 'Badilisha lugha ya programu (Kiswahili / English)',
+            onTap: () => _showLanguageSelectorModal(context, (newLang) => setState(() => _language = newLang)),
           ),
           _buildAccountMenuOption(
             icon: Icons.shield_outlined,

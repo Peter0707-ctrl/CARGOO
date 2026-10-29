@@ -45,6 +45,18 @@ class SessionManager {
     } catch (_) {}
   }
 
+  /// Language Preference (Kiswahili / English)
+  static Future<String> getLanguage() async {
+    final user = await getUser();
+    return user?['language'] as String? ?? 'sw';
+  }
+
+  static Future<void> setLanguage(String lang) async {
+    final user = (await getUser()) ?? {};
+    user['language'] = lang;
+    await saveUser(user);
+  }
+
   /// Clears session when logging out
   static Future<void> clearSession() async {
     try {
