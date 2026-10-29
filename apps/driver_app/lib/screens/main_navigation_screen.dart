@@ -680,66 +680,28 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               ),
             ),
 
-            const SizedBox(height: 18),
+            const SizedBox(height: 20),
 
-            // Vehicle & License Credentials Card
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'TAARIFA ZA CHOMBO NA LESENI',
-                        style: TextStyle(
-                          fontFamily: 'Segoe UI Variable',
-                          color: Color(0xFF4B7B9F),
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: _openEditVehicleDialog,
-                        icon: const Icon(Icons.edit_rounded, size: 14, color: Color(0xFF16A34A)),
-                        label: const Text(
-                          'Badili Chombo',
-                          style: TextStyle(
-                            fontFamily: 'Segoe UI Variable',
-                            color: Color(0xFF16A34A),
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _buildCredentialRow('Namba ya Bati ya Chombo', driver?.vehiclePlate ?? 'T 482 DWK'),
-                  const Divider(color: Color(0xFFE2E8F0), height: 16),
-                  _buildCredentialRow('Aina ya Chombo', driver?.vehicleType ?? 'Kirikuu Pick-up'),
-                  const Divider(color: Color(0xFFE2E8F0), height: 16),
-                  _buildCredentialRow('Uwezo wa Mzigo', driver?.loadCapacity ?? 'Tani 1.5 (Kilo 1,500)'),
-                  const Divider(color: Color(0xFFE2E8F0), height: 16),
-                  _buildCredentialRow('Daraja la Leseni (TRA)', driver?.licenseClass ?? 'Daraja C1 (Kirikuu & Canter Ndogo)'),
-                  const Divider(color: Color(0xFFE2E8F0), height: 16),
-                  _buildCredentialRow('Namba ya NIDA', driver?.nida ?? '19920814-14102-00001-24'),
-                ],
-              ),
+            // 1. Button: Chombo cha Usafiri (Tazama & Badili Chombo)
+            _buildAccountMenuButton(
+              icon: Icons.local_shipping_rounded,
+              iconBg: const Color(0xFFE0F2FE),
+              iconColor: const Color(0xFF0284C7),
+              title: 'Chombo cha Usafiri',
+              subtitle: '${driver?.vehiclePlate ?? 'T 482 DWK'} • ${driver?.vehicleType ?? 'Kirikuu Pick-up'}',
+              badgeText: 'Badili',
+              onTap: _openEditVehicleDialog,
             ),
 
-            const SizedBox(height: 18),
-
-            // AI PJ Certificate Review
-            InkWell(
+            // 2. Button: Uhakiki wa AI PJ & Nyaraka (KYC)
+            _buildAccountMenuButton(
+              icon: Icons.verified_user_rounded,
+              iconBg: const Color(0xFFDCFCE7),
+              iconColor: const Color(0xFF16A34A),
+              title: 'Uhakiki wa AI PJ & KYC',
+              subtitle: 'NIDA, Leseni, Picha & Cheti cha Usalama',
+              badgeText: 'Imethibitishwa ✓',
+              badgeColor: const Color(0xFF16A34A),
               onTap: () {
                 if (driver != null) {
                   Navigator.push(
@@ -748,65 +710,43 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   );
                 }
               },
-              borderRadius: BorderRadius.circular(16),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Row(
-                  children: const [
-                    Icon(Icons.psychology_rounded, color: Color(0xFF4B7B9F), size: 24),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Tazama Cheti cha AI PJ cha Uhakiki',
-                        style: TextStyle(
-                          fontFamily: 'Segoe UI Variable',
-                          color: Color(0xFF1E2822),
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFF94A3B8), size: 14),
-                  ],
-                ),
-              ),
             ),
 
-            const SizedBox(height: 24),
-
-            // Logout Button
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: OutlinedButton(
-                onPressed: _logout,
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFFEF4444)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Icon(Icons.logout_rounded, color: Color(0xFFEF4444), size: 18),
-                    SizedBox(width: 8),
-                    Text(
-                      'ONDOKA KWENYE AKAUNTI (LOG OUT)',
-                      style: TextStyle(
-                        fontFamily: 'Segoe UI Variable',
-                        color: Color(0xFFEF4444),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            // 3. Button: Pochi ya Dereva & Kamasheni
+            _buildAccountMenuButton(
+              icon: Icons.account_balance_wallet_rounded,
+              iconBg: const Color(0xFFFEF3C7),
+              iconColor: const Color(0xFFD97706),
+              title: 'Pochi ya Dereva & Kamasheni',
+              subtitle: 'Kamasheni ya 7% • M-Pesa, Tigo Pesa, Airtel',
+              onTap: () {
+                setState(() => _currentIndex = 2);
+              },
             ),
+
+            // 4. Button: Kituo cha Msaada & Huduma kwa Dereva
+            _buildAccountMenuButton(
+              icon: Icons.support_agent_rounded,
+              iconBg: const Color(0xFFF3E8FF),
+              iconColor: const Color(0xFF7C3AED),
+              title: 'Msaada & Huduma kwa Dereva',
+              subtitle: 'Msaada wa dharura 24/7 na ushauri',
+              onTap: _showSupportBottomSheet,
+            ),
+
+            const SizedBox(height: 10),
+
+            // 5. Button: Ondoka Kwenye Akaunti (Log Out)
+            _buildAccountMenuButton(
+              icon: Icons.logout_rounded,
+              iconBg: const Color(0xFFFEE2E2),
+              iconColor: const Color(0xFFEF4444),
+              title: 'Ondoka Kwenye Akaunti',
+              subtitle: 'Funga kipindi cha dereva kwa usalama',
+              isDestructive: true,
+              onTap: _logout,
+            ),
+
             const SizedBox(height: 24),
           ],
         ),
@@ -814,28 +754,195 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
-  Widget _buildCredentialRow(String label, String value) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontFamily: 'Segoe UI Variable',
-            color: Color(0xFF6B7E74),
-            fontSize: 12.5,
+  Widget _buildAccountMenuButton({
+    required IconData icon,
+    required Color iconBg,
+    required Color iconColor,
+    required String title,
+    String? subtitle,
+    String? badgeText,
+    Color? badgeColor,
+    required VoidCallback onTap,
+    bool isDestructive = false,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDestructive ? const Color(0xFFFEE2E2) : const Color(0xFFE2E8F0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: iconBg,
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              title,
+                              style: TextStyle(
+                                fontFamily: 'Segoe UI Variable',
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w700,
+                                color: isDestructive ? const Color(0xFFEF4444) : const Color(0xFF1E2822),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (badgeText != null) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: (badgeColor ?? const Color(0xFF4B7B9F)).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                badgeText,
+                                style: TextStyle(
+                                  fontFamily: 'Segoe UI Variable',
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: badgeColor ?? const Color(0xFF4B7B9F),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (subtitle != null && subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontFamily: 'Segoe UI Variable',
+                            fontSize: 12,
+                            color: isDestructive ? const Color(0xFFF87171) : const Color(0xFF6B7E74),
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: isDestructive ? const Color(0xFFEF4444) : const Color(0xFF94A3B8),
+                  size: 15,
+                ),
+              ],
+            ),
           ),
         ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontFamily: 'Segoe UI Variable',
-            color: Color(0xFF1E2822),
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-          ),
+      ),
+    );
+  }
+
+  void _showSupportBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 44,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: const [
+                Icon(Icons.support_agent_rounded, color: Color(0xFF4B7B9F), size: 26),
+                SizedBox(width: 10),
+                Text(
+                  'Huduma kwa Madereva CARGOO',
+                  style: TextStyle(
+                    fontFamily: 'Segoe UI Variable',
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF1E2822),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Una swali au changamoto yoyote ukiwa barabarani? Wasiliana na timu ya CARGOO saa 24/7:',
+              style: TextStyle(fontFamily: 'Segoe UI Variable', fontSize: 13, color: Color(0xFF6B7E74)),
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(color: const Color(0xFFE0F2FE), borderRadius: BorderRadius.circular(12)),
+                child: const Icon(Icons.phone_rounded, color: Color(0xFF0284C7), size: 20),
+              ),
+              title: const Text('Piga Simu ya Bure (Toll-Free)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              subtitle: const Text('0800 750 000 / +255 714 882 109', style: TextStyle(fontSize: 12.5, color: Color(0xFF6B7E74))),
+              onTap: () => Navigator.pop(ctx),
+            ),
+            const Divider(color: Color(0xFFF1F5F9)),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(12)),
+                child: const Icon(Icons.chat_rounded, color: Color(0xFF16A34A), size: 20),
+              ),
+              title: const Text('Msaada kwa WhatsApp', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              subtitle: const Text('Wasiliana nasi muda wote kwa ujumbe', style: TextStyle(fontSize: 12.5, color: Color(0xFF6B7E74))),
+              onTap: () => Navigator.pop(ctx),
+            ),
+            const SizedBox(height: 10),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
